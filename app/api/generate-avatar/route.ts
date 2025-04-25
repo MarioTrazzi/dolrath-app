@@ -54,7 +54,7 @@ export async function POST(req: NextRequest) {
 			});
 
 			// Extrai a URL da imagem da resposta
-			const dalleImageUrl = response.data[0]?.url;
+			const dalleImageUrl = response.data?.[0]?.url;
 
 			console.log("Resposta da API (parcial):", response.data ? "Dados recebidos" : "Sem dados");
 			console.log("Imagem gerada com sucesso:", dalleImageUrl ? "URL recebida" : "Sem URL");
