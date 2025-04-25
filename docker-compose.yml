@@ -1,0 +1,14 @@
+services:
+  postgres:
+    container_name: dev_database
+    image: postgres
+    environment:
+      - POSTGRES_USER=mariotrazzi
+      - POSTGRES_PASSWORD=mariotrazzi
+    ports:
+      - 5432:5432
+    networks:
+      - shared-network
+
+networks:
+  shared-network:
