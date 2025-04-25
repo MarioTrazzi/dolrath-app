@@ -5,7 +5,8 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { getSocketInstance, formatTime } from "@/lib/utils";
+import { formatTime } from "@/lib/utils";
+import { getSocketInstance } from "@/lib/socket";
 import React from "react";
 
 export default function BattlePage() {
@@ -112,7 +113,7 @@ function BattleContent() {
 		}
 
 		// Listen for successful room join
-		socket.on("roomJoined", (data) => {
+		socket.on("roomJoined", (data: any) => {
 			console.log("Joined room successfully:", data);
 			if (data.players) {
 				// Converter jogadores recebidos para o formato com stats
@@ -139,7 +140,7 @@ function BattleContent() {
 		});
 
 		// Listen for new players joining
-		socket.on("playerJoined", (data) => {
+		socket.on("playerJoined", (data: any) => {
 			console.log("Player joined:", data);
 			// Adicionar novo jogador com stats padrão
 			if (data.playerInfo) {
@@ -188,7 +189,7 @@ function BattleContent() {
 		});
 
 		// Listen for players leaving
-		socket.on("playerLeft", (data) => {
+		socket.on("playerLeft", (data: any) => {
 			console.log("Player left:", data);
 			if (data.playerName) {
 				// Remover jogador que saiu
@@ -208,7 +209,7 @@ function BattleContent() {
 		});
 
 		// Listen for errors
-		socket.on("error", (error) => {
+		socket.on("error", (error: any) => {
 			console.error("Socket error:", error);
 			setMessages((prev) => [
 				...prev,
@@ -582,7 +583,7 @@ function BattleContent() {
 		if (!socket) return;
 
 		// Ouvir início de jogo
-		socket.on("gameStarted", (initialGameState) => {
+		socket.on("gameStarted", (initialGameState: any) => {
 			setBattleStarted(true);
 			setGameState(initialGameState);
 
@@ -598,7 +599,7 @@ function BattleContent() {
 		});
 
 		// Ouvir mensagens de chat de outros jogadores
-		socket.on("messageReceived", (data) => {
+		socket.on("messageReceived", (data: any) => {
 			console.log("Mensagem recebida:", data);
 
 			// Ignorar mensagens enviadas pelo próprio usuário para evitar duplicação
@@ -616,7 +617,7 @@ function BattleContent() {
 		});
 
 		// Ouvir atualizações de estado do jogo
-		socket.on("gameStateUpdated", (data) => {
+		socket.on("gameStateUpdated", (data: any) => {
 			console.log("Game state updated:", data);
 			setGameState(data.gameState);
 
@@ -654,7 +655,7 @@ function BattleContent() {
 		});
 
 		// Ouvir ações de outros jogadores
-		socket.on("actionPerformed", (data) => {
+		socket.on("actionPerformed", (data: any) => {
 			// Adicionar mensagem sobre a ação
 			setMessages((prev) => [
 				...prev,
