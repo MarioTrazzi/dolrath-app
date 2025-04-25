@@ -5,10 +5,14 @@ const cors = require("cors");
 const fs = require("fs");
 const path = require("path");
 
+// Configuração de CORS
+const CORS_ORIGINS = process.env.CORS_ORIGINS ? process.env.CORS_ORIGINS.split(",") : "*";
+console.log(`CORS configured for origins: ${CORS_ORIGINS}`);
+
 const app = express();
 app.use(
 	cors({
-		origin: "*",
+		origin: CORS_ORIGINS,
 		methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
 		credentials: true,
 	}),
@@ -18,7 +22,7 @@ app.use(express.json());
 const server = http.createServer(app);
 const io = new Server(server, {
 	cors: {
-		origin: "*",
+		origin: CORS_ORIGINS,
 		methods: ["GET", "POST"],
 		credentials: true,
 	},
@@ -28,16 +32,44 @@ const io = new Server(server, {
 	pingInterval: 25000,
 });
 
+// Adicionar logs de inicialização
+console.log(`Server starting...`);
+console.log(`__dirname: ${__dirname}`);
+console.log(`Working directory: ${process.cwd()}`);
+console.log(`NODE_ENV: ${process.env.NODE_ENV}`);
+
 // Path to rooms data file
 const roomsFilePath = path.join(__dirname, "rooms.json");
+console.log(`Rooms file path: ${roomsFilePath}`);
+
+// Function to ensure directories exist
+function ensureDirectoryExists(filePath) {
+	const dirname = path.dirname(filePath);
+	if (fs.existsSync(dirname)) {
+		return true;
+	}
+	fs.mkdirSync(dirname, { recursive: true });
+	return true;
+}
 
 // Function to load rooms data
 function loadRooms() {
 	try {
+		ensureDirectoryExists(roomsFilePath);
+
+		// Verificar se o arquivo existe
+		if (!fs.existsSync(roomsFilePath)) {
+			// Se não existir, criar um arquivo vazio com estrutura inicial
+			fs.writeFileSync(roomsFilePath, JSON.stringify({ rooms: [] }, null, 2), "utf8");
+			console.log(`Created new empty rooms file at ${roomsFilePath}`);
+			return { rooms: [] };
+		}
+
 		const data = fs.readFileSync(roomsFilePath, "utf8");
 		return JSON.parse(data);
 	} catch (error) {
 		console.error("Error reading rooms file:", error);
+		// Retornar um objeto vazio em caso de erro
 		return { rooms: [] };
 	}
 }
@@ -45,6 +77,7 @@ function loadRooms() {
 // Function to save rooms data
 function saveRooms(roomsData) {
 	try {
+		ensureDirectoryExists(roomsFilePath);
 		fs.writeFileSync(roomsFilePath, JSON.stringify(roomsData, null, 2), "utf8");
 	} catch (error) {
 		console.error("Error writing rooms file:", error);
@@ -143,13 +176,11 @@ app.post("/api/battles/record", (req, res) => {
 // Function to save character battle history
 function saveCharacterBattleHistory(characterId, roomId, eventRecord) {
 	try {
-		const characterHistoryPath = path.join(__dirname, "battle-history", `${characterId}.json`);
-		let historyData = { battles: {} };
+		const battleHistoryDir = path.join(__dirname, "battle-history");
+		ensureDirectoryExists(battleHistoryDir);
 
-		// Create directory if it doesn't exist
-		if (!fs.existsSync(path.join(__dirname, "battle-history"))) {
-			fs.mkdirSync(path.join(__dirname, "battle-history"), { recursive: true });
-		}
+		const characterHistoryPath = path.join(battleHistoryDir, `${characterId}.json`);
+		let historyData = { battles: {} };
 
 		// Load existing data if file exists
 		if (fs.existsSync(characterHistoryPath)) {
@@ -515,6 +546,8 @@ function generateRoomCode() {
 }
 
 const PORT = process.env.PORT || 3001;
-server.listen(PORT, () => {
-	console.log(`Server is running on port ${PORT}`);
+const HOST = process.env.HOST || "0.0.0.0";
+server.listen(PORT, HOST, () => {
+	console.log(`Server is running on http://${HOST}:${PORT}`);
+	console.log(`Health check available at http://${HOST}:${PORT}/api/health`);
 });
