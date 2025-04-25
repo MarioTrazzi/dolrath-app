@@ -155,6 +155,9 @@ function BattleContent() {
 	const characterId = searchParams?.get("characterId") || null;
 	const characterClass = searchParams?.get("characterClass") || "Desconhecido";
 
+	// Adicionando o hook useSocket para ter acesso ao socket
+	const { socket, isConnected } = useSocket();
+
 	// Game state management
 	const [chatMessage, setChatMessage] = useState("");
 	const [messages, setMessages] = useState<ChatMessageData[]>([]);
@@ -187,167 +190,169 @@ function BattleContent() {
 
 		hasJoinedRef.current = true;
 
-		socket.emit("joinRoom", {
-			roomCode,
-			playerName,
-			isHost,
-			characterId,
-			characterClass,
-			playerStats,
-		});
-
-		// Handle player joined
-		const handlePlayerJoined: PlayerJoinedHandler = (data) => {
-			setPlayers((prevPlayers) => {
-				// Se o jogador já existe, não adicione novamente
-				if (prevPlayers.some((p) => p.id === data.id)) {
-					return prevPlayers;
-				}
-				return [...prevPlayers, data];
+		if (socket) {
+			socket.emit("joinRoom", {
+				roomCode,
+				playerName,
+				isHost,
+				characterId,
+				characterClass,
+				playerStats,
 			});
 
-			// Se o jogador atual for o host, atualize os jogadores existentes para o novo jogador
-			if (isHost) {
-				setTimeout(() => {
-					socket.emit("updatePlayersToNewJoiner", {
-						roomCode,
-						players,
-						gameState,
-						currentTurn,
-					});
-				}, 500);
-			}
+			// Handle player joined
+			const handlePlayerJoined: PlayerJoinedHandler = (data) => {
+				setPlayers((prevPlayers) => {
+					// Se o jogador já existe, não adicione novamente
+					if (prevPlayers.some((p) => p.id === data.id)) {
+						return prevPlayers;
+					}
+					return [...prevPlayers, data];
+				});
 
-			// Adicione mensagem de chat
-			setMessages((prevMessages) => [
-				...prevMessages,
-				{
-					id: `join-${data.id}`,
-					sender: "System",
-					text: `${data.name} entrou na sala.`,
-					timestamp: formatTime(new Date()),
-				},
-			]);
-		};
+				// Se o jogador atual for o host, atualize os jogadores existentes para o novo jogador
+				if (isHost) {
+					setTimeout(() => {
+						socket.emit("updatePlayersToNewJoiner", {
+							roomCode,
+							players,
+							gameState,
+							currentTurn,
+						});
+					}, 500);
+				}
 
-		// Handle chat message
-		const handleChatMessage: ChatMessageHandler = (data) => {
-			setMessages((prevMessages) => [...prevMessages, data]);
-		};
-
-		// Handle game state update
-		const handleGameState: GameStateHandler = (data) => {
-			setGameState(data.state);
-			setCurrentTurn(data.currentTurn);
-
-			if (data.state === "combat") {
-				setBattleStarted(true);
-			}
-		};
-
-		// Handle player updates from host
-		socket.on("updateAllPlayers", (allPlayers: PlayerJoinedData[]) => {
-			setPlayers(allPlayers);
-		});
-
-		// Handle roll result
-		const handleRollResult: RollResultHandler = (data) => {
-			// Adicione mensagem de chat para o resultado da rolagem
-			setMessages((prevMessages) => [
-				...prevMessages,
-				{
-					id: `roll-${Date.now()}`,
-					sender: "System",
-					text: `${data.playerName} rolou ${data.result} para ${data.rollType}.`,
-					timestamp: formatTime(new Date()),
-				},
-			]);
-
-			// Se for uma rolagem de iniciativa, atualize o jogador
-			if (data.rollType === "iniciativa" && isHost) {
-				setPlayers((prevPlayers) =>
-					prevPlayers.map((player) =>
-						player.name === data.playerName ? { ...player, initiative: data.result } : player,
-					),
-				);
-			}
-		};
-
-		// Handle action result
-		const handleActionResult: ActionResultHandler = (data) => {
-			let messageText = `${data.actor} usou ${data.action} em ${data.target}`;
-
-			if (data.damage) {
-				messageText += ` causando ${data.damage} de dano`;
-			} else if (data.healing) {
-				messageText += ` curando ${data.healing} de HP`;
-			}
-
-			setMessages((prevMessages) => [
-				...prevMessages,
-				{
-					id: `action-${Date.now()}`,
-					sender: "System",
-					text: messageText,
-					timestamp: formatTime(new Date()),
-				},
-			]);
-		};
-
-		// Handle player stats update
-		const handlePlayerStatsUpdate: PlayerStatsUpdateHandler = (data) => {
-			setPlayers((prevPlayers) =>
-				prevPlayers.map((player) => (player.id === data.playerId ? { ...player, hp: data.hp, mp: data.mp } : player)),
-			);
-
-			// Se o ID do jogador for o do cliente atual, também atualize os stats locais
-			if (data.playerId === socket.id) {
-				setPlayerStats((prevStats) => ({
-					...prevStats,
-					hp: data.hp,
-					mp: data.mp,
-				}));
-			}
-		};
-
-		// Handle player disconnected
-		const handlePlayerLeft: PlayerLeftHandler = (data) => {
-			const disconnectedPlayer = players.find((p) => p.id === data.id);
-
-			if (disconnectedPlayer) {
+				// Adicione mensagem de chat
 				setMessages((prevMessages) => [
 					...prevMessages,
 					{
-						id: `disconnect-${data.id}`,
+						id: `join-${data.id}`,
 						sender: "System",
-						text: `${disconnectedPlayer.name} saiu da sala.`,
+						text: `${data.name} entrou na sala.`,
+						timestamp: formatTime(new Date()),
+					},
+				]);
+			};
+
+			// Handle chat message
+			const handleChatMessage: ChatMessageHandler = (data) => {
+				setMessages((prevMessages) => [...prevMessages, data]);
+			};
+
+			// Handle game state update
+			const handleGameState: GameStateHandler = (data) => {
+				setGameState(data.state);
+				setCurrentTurn(data.currentTurn);
+
+				if (data.state === "combat") {
+					setBattleStarted(true);
+				}
+			};
+
+			// Handle player updates from host
+			socket.on("updateAllPlayers", (allPlayers: PlayerJoinedData[]) => {
+				setPlayers(allPlayers);
+			});
+
+			// Handle roll result
+			const handleRollResult: RollResultHandler = (data) => {
+				// Adicione mensagem de chat para o resultado da rolagem
+				setMessages((prevMessages) => [
+					...prevMessages,
+					{
+						id: `roll-${Date.now()}`,
+						sender: "System",
+						text: `${data.playerName} rolou ${data.result} para ${data.rollType}.`,
 						timestamp: formatTime(new Date()),
 					},
 				]);
 
-				setPlayers((prevPlayers) => prevPlayers.filter((p) => p.id !== data.id));
-			}
-		};
+				// Se for uma rolagem de iniciativa, atualize o jogador
+				if (data.rollType === "iniciativa" && isHost) {
+					setPlayers((prevPlayers) =>
+						prevPlayers.map((player) =>
+							player.name === data.playerName ? { ...player, initiative: data.result } : player,
+						),
+					);
+				}
+			};
 
-		// Registrar os event listeners com os tipos corretos
-		socket.on("player_joined", handlePlayerJoined);
-		socket.on("chat_message", handleChatMessage);
-		socket.on("game_state", handleGameState);
-		socket.on("player_left", handlePlayerLeft);
-		socket.on("roll_result", handleRollResult);
-		socket.on("action_result", handleActionResult);
-		socket.on("player_stats_update", handlePlayerStatsUpdate);
+			// Handle action result
+			const handleActionResult: ActionResultHandler = (data) => {
+				let messageText = `${data.actor} usou ${data.action} em ${data.target}`;
 
-		// Cleanup function to remove event listeners
-		return () => {
-			socket.off("player_joined");
-			socket.off("chat_message");
-			socket.off("game_state");
-			socket.off("player_left");
-			socket.off("roll_result");
-			socket.off("action_result");
-			socket.off("player_stats_update");
-		};
+				if (data.damage) {
+					messageText += ` causando ${data.damage} de dano`;
+				} else if (data.healing) {
+					messageText += ` curando ${data.healing} de HP`;
+				}
+
+				setMessages((prevMessages) => [
+					...prevMessages,
+					{
+						id: `action-${Date.now()}`,
+						sender: "System",
+						text: messageText,
+						timestamp: formatTime(new Date()),
+					},
+				]);
+			};
+
+			// Handle player stats update
+			const handlePlayerStatsUpdate: PlayerStatsUpdateHandler = (data) => {
+				setPlayers((prevPlayers) =>
+					prevPlayers.map((player) => (player.id === data.playerId ? { ...player, hp: data.hp, mp: data.mp } : player)),
+				);
+
+				// Se o ID do jogador for o do cliente atual, também atualize os stats locais
+				if (data.playerId === socket.id) {
+					setPlayerStats((prevStats) => ({
+						...prevStats,
+						hp: data.hp,
+						mp: data.mp,
+					}));
+				}
+			};
+
+			// Handle player disconnected
+			const handlePlayerLeft: PlayerLeftHandler = (data) => {
+				const disconnectedPlayer = players.find((p) => p.id === data.id);
+
+				if (disconnectedPlayer) {
+					setMessages((prevMessages) => [
+						...prevMessages,
+						{
+							id: `disconnect-${data.id}`,
+							sender: "System",
+							text: `${disconnectedPlayer.name} saiu da sala.`,
+							timestamp: formatTime(new Date()),
+						},
+					]);
+
+					setPlayers((prevPlayers) => prevPlayers.filter((p) => p.id !== data.id));
+				}
+			};
+
+			// Registrar os event listeners com os tipos corretos
+			socket.on("player_joined", handlePlayerJoined);
+			socket.on("chat_message", handleChatMessage);
+			socket.on("game_state", handleGameState);
+			socket.on("player_left", handlePlayerLeft);
+			socket.on("roll_result", handleRollResult);
+			socket.on("action_result", handleActionResult);
+			socket.on("player_stats_update", handlePlayerStatsUpdate);
+
+			// Cleanup function to remove event listeners
+			return () => {
+				socket.off("player_joined");
+				socket.off("chat_message");
+				socket.off("game_state");
+				socket.off("player_left");
+				socket.off("roll_result");
+				socket.off("action_result");
+				socket.off("player_stats_update");
+			};
+		}
 	}, [socket, roomCode, playerName, isHost, players, gameState, currentTurn, playerStats, characterId, characterClass]);
 
 	// Record battle event to history
@@ -394,13 +399,15 @@ function BattleContent() {
 		setChatMessage("");
 
 		// Send to server
-		socket.emit("chatMessage", {
-			roomId: roomCode,
-			message: {
-				sender: playerName,
-				text: chatMessage,
-			},
-		});
+		if (socket) {
+			socket.emit("chatMessage", {
+				roomId: roomCode,
+				message: {
+					sender: playerName,
+					text: chatMessage,
+				},
+			});
+		}
 
 		// Record message in battle history
 		if (characterId) {
@@ -442,10 +449,12 @@ function BattleContent() {
 		setGameState("rolling_initiative");
 
 		// Informar ao servidor
-		socket.emit("startGame", {
-			roomId: roomCode,
-			initialGameState: "rolling_initiative",
-		});
+		if (socket) {
+			socket.emit("startGame", {
+				roomId: roomCode,
+				initialGameState: "rolling_initiative",
+			});
+		}
 
 		// Adicionar mensagem de sistema
 		setMessages((prev) => [
@@ -480,13 +489,15 @@ function BattleContent() {
 		setPlayers((prev) => prev.map((p) => (p.name === playerName ? { ...p, initiative: result } : p)));
 
 		// Enviar resultado para o servidor
-		socket.emit("rollDice", {
-			roomId: roomCode,
-			playerName,
-			faces: 20,
-			result,
-			gameState: "rolling_initiative",
-		});
+		if (socket) {
+			socket.emit("rollDice", {
+				roomId: roomCode,
+				playerName,
+				faces: 20,
+				result,
+				gameState: "rolling_initiative",
+			});
+		}
 
 		// Adicionar mensagem local
 		setMessages((prev) => [
@@ -500,14 +511,16 @@ function BattleContent() {
 		]);
 
 		// Informar o servidor sobre a iniciativa
-		socket.emit("updateGameState", {
-			roomId: roomCode,
-			gameState: "rolling_initiative",
-			playerInitiative: {
-				name: playerName,
-				initiative: result,
-			},
-		});
+		if (socket) {
+			socket.emit("updateGameState", {
+				roomId: roomCode,
+				gameState: "rolling_initiative",
+				playerInitiative: {
+					name: playerName,
+					initiative: result,
+				},
+			});
+		}
 
 		// Registrar evento
 		recordBattleEvent({
@@ -534,15 +547,17 @@ function BattleContent() {
 		const attackRoll = Math.floor(Math.random() * 20) + 1;
 
 		// Enviar ação para o servidor
-		socket.emit("performAction", {
-			roomId: roomCode,
-			playerName,
-			actionType: "attack",
-			currentTurn,
-			gameState: "combat",
-			attackRoll,
-			message: `${playerName} realiza um ataque! (${attackRoll})`,
-		});
+		if (socket) {
+			socket.emit("performAction", {
+				roomId: roomCode,
+				playerName,
+				actionType: "attack",
+				currentTurn,
+				gameState: "combat",
+				attackRoll,
+				message: `${playerName} realiza um ataque! (${attackRoll})`,
+			});
+		}
 
 		// Adicionar mensagem local
 		setMessages((prev) => [
@@ -591,16 +606,18 @@ function BattleContent() {
 			}));
 
 			// Enviar ação para o servidor
-			socket.emit("performAction", {
-				roomId: roomCode,
-				playerName,
-				actionType: "use_item",
-				currentTurn,
-				gameState: "combat",
-				itemName,
-				hpRestored,
-				message: `${playerName} usou uma Poção e recuperou ${hpRestored} de HP!`,
-			});
+			if (socket) {
+				socket.emit("performAction", {
+					roomId: roomCode,
+					playerName,
+					actionType: "use_item",
+					currentTurn,
+					gameState: "combat",
+					itemName,
+					hpRestored,
+					message: `${playerName} usou uma Poção e recuperou ${hpRestored} de HP!`,
+				});
+			}
 
 			// Adicionar mensagem local
 			setMessages((prev) => [
@@ -641,11 +658,13 @@ function BattleContent() {
 		setCurrentTurn(nextPlayer.name);
 
 		// Enviar atualização para o servidor
-		socket.emit("updateGameState", {
-			roomId: roomCode,
-			gameState: "combat",
-			currentTurn: nextPlayer.name,
-		});
+		if (socket) {
+			socket.emit("updateGameState", {
+				roomId: roomCode,
+				gameState: "combat",
+				currentTurn: nextPlayer.name,
+			});
+		}
 
 		// Adicionar mensagem local
 		setMessages((prev) => [
@@ -696,11 +715,13 @@ function BattleContent() {
 		setCurrentTurn(firstPlayer.name);
 
 		// Atualizar estado do jogo
-		socket.emit("updateGameState", {
-			roomId: roomCode,
-			gameState: "combat",
-			currentTurn: firstPlayer.name,
-		});
+		if (socket) {
+			socket.emit("updateGameState", {
+				roomId: roomCode,
+				gameState: "combat",
+				currentTurn: firstPlayer.name,
+			});
+		}
 
 		// Adicionar mensagem
 		setMessages((prev) => [
@@ -719,7 +740,7 @@ function BattleContent() {
 		if (!socket) return;
 
 		// Ouvir início de jogo
-		socket.on("gameStarted", (initialGameState: GameStartedData) => {
+		const handleGameStarted = (initialGameState: GameStartedData) => {
 			setBattleStarted(true);
 			setGameState(initialGameState as unknown as string);
 
@@ -732,10 +753,10 @@ function BattleContent() {
 					timestamp: formatTime(),
 				},
 			]);
-		});
+		};
 
 		// Ouvir mensagens de chat de outros jogadores
-		socket.on("messageReceived", (data: MessageReceivedData) => {
+		const handleMessageReceived = (data: MessageReceivedData) => {
 			console.log("Mensagem recebida:", data);
 
 			// Ignorar mensagens enviadas pelo próprio usuário para evitar duplicação
@@ -750,10 +771,10 @@ function BattleContent() {
 					},
 				]);
 			}
-		});
+		};
 
 		// Ouvir atualizações de estado do jogo
-		socket.on("gameStateUpdated", (data: GameStateUpdatedData) => {
+		const handleGameStateUpdated = (data: GameStateUpdatedData) => {
 			console.log("Game state updated:", data);
 			setGameState(data.gameState as unknown as string);
 
@@ -777,7 +798,7 @@ function BattleContent() {
 						{
 							id: Date.now().toString(),
 							sender: "System",
-							text: `${data.playerInitiative.name} rolou iniciativa: ${data.playerInitiative.initiative}`,
+							text: `${data.playerInitiative?.name || "Desconhecido"} rolou iniciativa: ${data.playerInitiative?.initiative || 0}`,
 							timestamp: formatTime(),
 						},
 					]);
@@ -788,10 +809,10 @@ function BattleContent() {
 			if (data.currentTurn) {
 				setCurrentTurn(data.currentTurn);
 			}
-		});
+		};
 
 		// Ouvir ações de outros jogadores
-		socket.on("actionPerformed", (data: ActionPerformedData) => {
+		const handleActionPerformed = (data: ActionPerformedData) => {
 			// Adicionar mensagem sobre a ação
 			setMessages((prev) => [
 				...prev,
@@ -818,14 +839,20 @@ function BattleContent() {
 				// Lógica para receber dano
 				// Será implementada depois
 			}
-		});
+		};
+
+		socket.on("gameStarted", handleGameStarted);
+		socket.on("messageReceived", handleMessageReceived);
+		socket.on("gameStateUpdated", handleGameStateUpdated);
+		socket.on("actionPerformed", handleActionPerformed);
 
 		return () => {
-			socket.off("gameStarted");
-			socket.off("messageReceived");
-			socket.off("gameStateUpdated");
-			socket.off("actionPerformed");
+			socket.off("gameStarted", handleGameStarted);
+			socket.off("messageReceived", handleMessageReceived);
+			socket.off("gameStateUpdated", handleGameStateUpdated);
+			socket.off("actionPerformed", handleActionPerformed);
 		};
+		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [socket, playerName]);
 
 	// Corrigir o useEffect para rolagem do chat
