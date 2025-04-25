@@ -6,14 +6,26 @@ const fs = require("fs");
 const path = require("path");
 
 const app = express();
-app.use(cors());
+app.use(
+	cors({
+		origin: "*",
+		methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+		credentials: true,
+	}),
+);
+app.use(express.json());
 
 const server = http.createServer(app);
 const io = new Server(server, {
 	cors: {
 		origin: "*",
 		methods: ["GET", "POST"],
+		credentials: true,
 	},
+	allowEIO3: true,
+	transports: ["websocket", "polling"],
+	pingTimeout: 60000,
+	pingInterval: 25000,
 });
 
 // Path to rooms data file
@@ -164,7 +176,24 @@ function saveCharacterBattleHistory(characterId, roomId, eventRecord) {
 	}
 }
 
+// Health check endpoint
+app.get("/api/health", (req, res) => {
+	res.json({
+		status: "ok",
+		uptime: process.uptime(),
+		timestamp: Date.now(),
+		connections: Object.keys(io.sockets.sockets).length,
+	});
+});
+
 io.on("connection", (socket) => {
+	const transport = socket.conn.transport.name; // websocket ou polling
+	console.log(`Novo cliente conectado [${socket.id}] usando ${transport}`);
+
+	socket.conn.on("upgrade", (newTransport) => {
+		console.log(`Cliente ${socket.id} alterou transporte de ${transport} para ${newTransport}`);
+	});
+
 	console.log("User connected:", socket.id);
 
 	socket.on("createRoom", ({ playerName }) => {

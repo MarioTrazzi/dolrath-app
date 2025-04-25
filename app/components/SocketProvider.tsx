@@ -28,16 +28,24 @@ export const SocketProvider = ({ children }: { children: ReactNode }) => {
 				const io = (await import("socket.io-client")).default;
 
 				const newSocket = io(process.env.NEXT_PUBLIC_SOCKET_URL || "http://localhost:3001", {
-					transports: ["websocket"],
+					transports: ["websocket", "polling"],
+					reconnection: true,
+					reconnectionAttempts: 5,
+					reconnectionDelay: 1000,
+					timeout: 20000,
 				});
 
 				newSocket.on("connect", () => {
-					console.log("Socket connected");
+					console.log("Socket connected using:", newSocket.io.engine.transport.name);
 					setIsConnected(true);
 				});
 
-				newSocket.on("disconnect", () => {
-					console.log("Socket disconnected");
+				newSocket.on("connect_error", (err) => {
+					console.error("Connection error:", err);
+				});
+
+				newSocket.on("disconnect", (reason) => {
+					console.log("Socket disconnected:", reason);
 					setIsConnected(false);
 				});
 
