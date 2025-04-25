@@ -5,6 +5,8 @@ import { auth } from "@/auth";
 import { ThemeProvider } from "@/components/providers/theme-provider";
 import { SessionProvider } from "next-auth/react";
 import Navbar from "@/components/site/navbar";
+import { Providers } from "./providers";
+import { cn } from "@/lib/utils";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -15,23 +17,19 @@ export const metadata: Metadata = {
 
 export default async function RootLayout({
 	children,
-}: Readonly<{
+}: {
 	children: React.ReactNode;
-}>) {
+}) {
 	const session = await auth();
 	return (
-		<html lang="pt-BR">
-			<body className={inter.className} suppressHydrationWarning>
-				<SessionProvider session={session}>
-					<ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
-						<div className="flex min-h-screen w-full flex-col">
-							<div className="sticky top-0 flex h-16 items-center gap-4 border-b bg-background/80 backdrop-blur-md px-4 md:px-6 z-50">
-								<Navbar />
-							</div>
-							{children}
-						</div>
-					</ThemeProvider>
-				</SessionProvider>
+		<html lang="pt-BR" suppressHydrationWarning>
+			<body className={cn("min-h-screen bg-white antialiased", inter.className)}>
+				<Providers>
+					<SessionProvider session={session}>
+						<Navbar />
+						<div className="flex-1">{children}</div>
+					</SessionProvider>
+				</Providers>
 			</body>
 		</html>
 	);

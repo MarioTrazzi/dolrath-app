@@ -6,12 +6,133 @@ import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { formatTime } from "@/lib/utils";
-import { getSocketInstance } from "@/lib/socket";
+import { useSocket } from "../components/SocketProvider";
 import React from "react";
+
+// Define o tipo Player explicitamente
+interface Player {
+	id: string;
+	name: string;
+	characterId: string;
+	characterClass: string;
+	hp: number;
+	mp: number;
+	isHost: boolean;
+	maxHp: number;
+	maxMp: number;
+	initiative: number;
+}
+
+// Definir interfaces para os diferentes tipos de dados de eventos
+interface ChatMessageData {
+	id: string;
+	sender: string;
+	text: string;
+	timestamp: string;
+}
+
+interface PlayerJoinedData {
+	id: string;
+	name: string;
+	characterId: string;
+	characterClass: string;
+	hp: number;
+	mp: number;
+	isHost: boolean;
+	maxHp: number;
+	maxMp: number;
+	initiative: number;
+}
+
+interface GameStateData {
+	state: string;
+	currentTurn: string;
+	turnOrder?: Player[];
+	players: Player[];
+	battleStatus: string;
+	roundCount: number;
+	timestamp: string;
+}
+
+interface RollResultData {
+	playerId: string;
+	playerName: string;
+	rollType: string;
+	result: number;
+	modifiers?: number;
+	modifier?: number;
+	total: number;
+	timestamp: string;
+}
+
+interface ActionResultData {
+	actor: string;
+	action: string;
+	target: string;
+	damage?: number;
+	healing?: number;
+	sourcePlayerId: string;
+	targetPlayerId: string;
+	actionType: string;
+	result: number;
+	description: string;
+	timestamp: string;
+}
+
+interface PlayerStatsUpdateData {
+	playerId: string;
+	hp: number;
+	mp: number;
+	maxHp: number;
+	maxMp: number;
+	timestamp: string;
+}
+
+// Adicionamos uma interface para o estado inicial do jogo
+interface GameStartedData extends GameStateData {
+	// Este tipo estende o GameStateData para garantir compatibilidade
+}
+
+// Interface para mensagens recebidas
+interface MessageReceivedData {
+	sender: string;
+	text: string;
+	timestamp: string;
+}
+
+// Interface para atualização do estado do jogo
+interface GameStateUpdatedData {
+	gameState: GameStateData;
+	playerInitiative?: {
+		name: string;
+		initiative: number;
+	};
+	currentTurn?: string;
+}
+
+// Interface para ações realizadas
+interface ActionPerformedData {
+	message: string;
+	gameState?: GameStateData;
+	currentTurn?: string;
+	actionType?: string;
+	targetPlayer?: string;
+}
+
+// Definir tipos para event handlers e parâmetros de eventos específicos
+type ChatMessageHandler = (data: ChatMessageData) => void;
+type PlayerJoinedHandler = (data: PlayerJoinedData) => void;
+type GameStateHandler = (data: GameStateData) => void;
+type PlayerLeftHandler = (data: { id: string }) => void;
+type RollResultHandler = (data: RollResultData) => void;
+type ActionResultHandler = (data: ActionResultData) => void;
+type PlayerStatsUpdateHandler = (data: PlayerStatsUpdateData) => void;
 
 export default function BattlePage() {
 	const router = useRouter();
 	const searchParams = useSearchParams();
+
+	const { socket, isConnected } = useSocket();
 
 	useEffect(() => {
 		// If there are room parameters, keep them and allow access to the battle
@@ -34,41 +155,17 @@ function BattleContent() {
 	const characterId = searchParams?.get("characterId") || null;
 	const characterClass = searchParams?.get("characterClass") || "Desconhecido";
 
+	// Game state management
 	const [chatMessage, setChatMessage] = useState("");
-	const [messages, setMessages] = useState<
-		{
-			id: string;
-			sender: string;
-			text: string;
-			time: string;
-		}[]
-	>([
-		{
-			id: "welcome",
-			sender: "System",
-			text: `Bem-vindo à sala de batalha ${roomCode}!${characterId ? " Batalha será salva no histórico do personagem." : ""}`,
-			time: "00:00:00",
-		},
-	]);
-
-	// Estado do jogo
-	const [gameState, setGameState] = useState("waiting"); // waiting, rolling_initiative, combat, ended
+	const [messages, setMessages] = useState<ChatMessageData[]>([]);
+	const [gameState, setGameState] = useState("waiting");
 	const [currentTurn, setCurrentTurn] = useState("");
 	const [battleStarted, setBattleStarted] = useState(false);
-	const [players, setPlayers] = useState<
-		{
-			id: string;
-			name: string;
-			isHost: boolean;
-			hp: number;
-			maxHp: number;
-			mp: number;
-			maxMp: number;
-			initiative: number;
-			characterId: string;
-			characterClass: string;
-		}[]
-	>([]);
+	const [players, setPlayers] = useState<Player[]>([]);
+	const [selectedAction, setSelectedAction] = useState("");
+	const [selectedTarget, setSelectedTarget] = useState("");
+	const [showInitiativeRoll, setShowInitiativeRoll] = useState(false);
+	const [diceRollResult, setDiceRollResult] = useState<number | null>(null);
 	const [playerStats, setPlayerStats] = useState({
 		hp: 100,
 		maxHp: 100,
@@ -79,8 +176,6 @@ function BattleContent() {
 		characterClass: characterClass || "",
 	});
 
-	const socket = getSocketInstance();
-
 	// Join the socket.io room when the component mounts
 	const hasJoinedRef = React.useRef(false);
 
@@ -90,167 +185,193 @@ function BattleContent() {
 	useEffect(() => {
 		if (!socket || !roomCode || !playerName || hasJoinedRef.current) return;
 
-		// Join the room
-		const joinRoom = () => {
-			console.log(`Joining room ${roomCode} as ${playerName} with character ${characterId}`);
-			socket.emit("joinRoom", {
-				roomId: roomCode,
-				playerName,
-				isHost,
-				characterId,
-				characterClass,
-			});
-			hasJoinedRef.current = true;
-		};
+		hasJoinedRef.current = true;
 
-		// Connect to socket if not connected yet
-		if (!socket.connected) {
-			socket.on("connect", () => {
-				joinRoom();
-			});
-		} else {
-			joinRoom();
-		}
-
-		// Listen for successful room join
-		socket.on("roomJoined", (data: any) => {
-			console.log("Joined room successfully:", data);
-			if (data.players) {
-				// Converter jogadores recebidos para o formato com stats
-				const playersWithStats = data.players.map(
-					(player: {
-						id: string;
-						name: string;
-						isHost: boolean;
-						characterId?: string;
-						characterClass?: string;
-					}) => ({
-						...player,
-						hp: 100,
-						maxHp: 100,
-						mp: 80,
-						maxMp: 80,
-						initiative: 0,
-						characterId: player.characterId || "",
-						characterClass: player.characterClass || "",
-					}),
-				);
-				setPlayers(playersWithStats);
-			}
+		socket.emit("joinRoom", {
+			roomCode,
+			playerName,
+			isHost,
+			characterId,
+			characterClass,
+			playerStats,
 		});
 
-		// Listen for new players joining
-		socket.on("playerJoined", (data: any) => {
-			console.log("Player joined:", data);
-			// Adicionar novo jogador com stats padrão
-			if (data.playerInfo) {
-				// Atualização mais clara e direta para depuração
-				console.log("Adicionando jogador à lista:", data.playerInfo);
+		// Handle player joined
+		const handlePlayerJoined: PlayerJoinedHandler = (data) => {
+			setPlayers((prevPlayers) => {
+				// Se o jogador já existe, não adicione novamente
+				if (prevPlayers.some((p) => p.id === data.id)) {
+					return prevPlayers;
+				}
+				return [...prevPlayers, data];
+			});
 
-				setPlayers((prev) => {
-					// Verificar se o jogador já existe na lista para evitar duplicações
-					const exists = prev.some((p) => p.name === data.playerInfo.name);
-					if (exists) {
-						console.log("Jogador já existe na lista, ignorando");
-						return prev;
-					}
-
-					console.log("Adicionando novo jogador à lista");
-					return [
-						...prev,
-						{
-							...(data.playerInfo as {
-								id: string;
-								name: string;
-								isHost: boolean;
-								characterId: string;
-								characterClass: string;
-							}),
-							hp: 100,
-							maxHp: 100,
-							mp: 80,
-							maxMp: 80,
-							initiative: 0,
-						},
-					];
-				});
+			// Se o jogador atual for o host, atualize os jogadores existentes para o novo jogador
+			if (isHost) {
+				setTimeout(() => {
+					socket.emit("updatePlayersToNewJoiner", {
+						roomCode,
+						players,
+						gameState,
+						currentTurn,
+					});
+				}, 500);
 			}
 
-			// Adicionar mensagem ao chat
-			setMessages((prev) => [
-				...prev,
+			// Adicione mensagem de chat
+			setMessages((prevMessages) => [
+				...prevMessages,
 				{
-					id: Date.now().toString(),
+					id: `join-${data.id}`,
 					sender: "System",
-					text: `${data.playerName} entrou na sala.`,
-					time: formatTime(),
+					text: `${data.name} entrou na sala.`,
+					timestamp: formatTime(new Date()),
 				},
 			]);
+		};
+
+		// Handle chat message
+		const handleChatMessage: ChatMessageHandler = (data) => {
+			setMessages((prevMessages) => [...prevMessages, data]);
+		};
+
+		// Handle game state update
+		const handleGameState: GameStateHandler = (data) => {
+			setGameState(data.state);
+			setCurrentTurn(data.currentTurn);
+
+			if (data.state === "combat") {
+				setBattleStarted(true);
+			}
+		};
+
+		// Handle player updates from host
+		socket.on("updateAllPlayers", (allPlayers: PlayerJoinedData[]) => {
+			setPlayers(allPlayers);
 		});
 
-		// Listen for players leaving
-		socket.on("playerLeft", (data: any) => {
-			console.log("Player left:", data);
-			if (data.playerName) {
-				// Remover jogador que saiu
-				setPlayers((prev) => prev.filter((p) => p.name !== data.playerName));
+		// Handle roll result
+		const handleRollResult: RollResultHandler = (data) => {
+			// Adicione mensagem de chat para o resultado da rolagem
+			setMessages((prevMessages) => [
+				...prevMessages,
+				{
+					id: `roll-${Date.now()}`,
+					sender: "System",
+					text: `${data.playerName} rolou ${data.result} para ${data.rollType}.`,
+					timestamp: formatTime(new Date()),
+				},
+			]);
 
-				// Adicionar mensagem ao chat
-				setMessages((prev) => [
-					...prev,
+			// Se for uma rolagem de iniciativa, atualize o jogador
+			if (data.rollType === "iniciativa" && isHost) {
+				setPlayers((prevPlayers) =>
+					prevPlayers.map((player) =>
+						player.name === data.playerName ? { ...player, initiative: data.result } : player,
+					),
+				);
+			}
+		};
+
+		// Handle action result
+		const handleActionResult: ActionResultHandler = (data) => {
+			let messageText = `${data.actor} usou ${data.action} em ${data.target}`;
+
+			if (data.damage) {
+				messageText += ` causando ${data.damage} de dano`;
+			} else if (data.healing) {
+				messageText += ` curando ${data.healing} de HP`;
+			}
+
+			setMessages((prevMessages) => [
+				...prevMessages,
+				{
+					id: `action-${Date.now()}`,
+					sender: "System",
+					text: messageText,
+					timestamp: formatTime(new Date()),
+				},
+			]);
+		};
+
+		// Handle player stats update
+		const handlePlayerStatsUpdate: PlayerStatsUpdateHandler = (data) => {
+			setPlayers((prevPlayers) =>
+				prevPlayers.map((player) => (player.id === data.playerId ? { ...player, hp: data.hp, mp: data.mp } : player)),
+			);
+
+			// Se o ID do jogador for o do cliente atual, também atualize os stats locais
+			if (data.playerId === socket.id) {
+				setPlayerStats((prevStats) => ({
+					...prevStats,
+					hp: data.hp,
+					mp: data.mp,
+				}));
+			}
+		};
+
+		// Handle player disconnected
+		const handlePlayerLeft: PlayerLeftHandler = (data) => {
+			const disconnectedPlayer = players.find((p) => p.id === data.id);
+
+			if (disconnectedPlayer) {
+				setMessages((prevMessages) => [
+					...prevMessages,
 					{
-						id: Date.now().toString(),
+						id: `disconnect-${data.id}`,
 						sender: "System",
-						text: `${data.playerName} saiu da sala.`,
-						time: formatTime(),
+						text: `${disconnectedPlayer.name} saiu da sala.`,
+						timestamp: formatTime(new Date()),
 					},
 				]);
+
+				setPlayers((prevPlayers) => prevPlayers.filter((p) => p.id !== data.id));
 			}
-		});
-
-		// Listen for errors
-		socket.on("error", (error: any) => {
-			console.error("Socket error:", error);
-			setMessages((prev) => [
-				...prev,
-				{
-					id: Date.now().toString(),
-					sender: "System",
-					text: `Error: ${error.message}`,
-					time: formatTime(),
-				},
-			]);
-		});
-
-		return () => {
-			socket.off("roomJoined");
-			socket.off("playerJoined");
-			socket.off("playerLeft");
-			socket.off("error");
-			socket.off("connect");
 		};
-	}, [socket, roomCode, playerName, isHost, characterId, characterClass]);
+
+		// Registrar os event listeners com os tipos corretos
+		socket.on("player_joined", handlePlayerJoined);
+		socket.on("chat_message", handleChatMessage);
+		socket.on("game_state", handleGameState);
+		socket.on("player_left", handlePlayerLeft);
+		socket.on("roll_result", handleRollResult);
+		socket.on("action_result", handleActionResult);
+		socket.on("player_stats_update", handlePlayerStatsUpdate);
+
+		// Cleanup function to remove event listeners
+		return () => {
+			socket.off("player_joined");
+			socket.off("chat_message");
+			socket.off("game_state");
+			socket.off("player_left");
+			socket.off("roll_result");
+			socket.off("action_result");
+			socket.off("player_stats_update");
+		};
+	}, [socket, roomCode, playerName, isHost, players, gameState, currentTurn, playerStats, characterId, characterClass]);
 
 	// Record battle event to history
-	const recordBattleEvent = async (eventType: string, data: Record<string, unknown>) => {
-		if (!characterId) return; // Only record if a character is selected
-
+	const recordBattleEvent = async (event: {
+		type: string;
+		data: Record<string, unknown>;
+	}) => {
 		try {
-			await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001"}/api/battles/record`, {
+			const response = await fetch("/api/battleHistory", {
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
 				},
 				body: JSON.stringify({
-					roomId: roomCode,
-					characterId,
-					eventType,
-					eventData: data,
-					timestamp: new Date().toISOString(),
+					roomCode,
+					event,
 				}),
 			});
-		} catch (err) {
-			console.error("Failed to record battle event:", err);
+
+			if (!response.ok) {
+				console.error("Failed to record battle event");
+			}
+		} catch (error) {
+			console.error("Error recording battle event:", error);
 		}
 	};
 
@@ -265,7 +386,7 @@ function BattleContent() {
 			id: Date.now().toString(),
 			sender: playerName,
 			text: chatMessage,
-			time: formatTime(),
+			timestamp: formatTime(),
 		};
 
 		// Add to local message history
@@ -333,12 +454,15 @@ function BattleContent() {
 				id: Date.now().toString(),
 				sender: "System",
 				text: "A batalha começou! Todos os jogadores devem rolar iniciativa.",
-				time: formatTime(),
+				timestamp: formatTime(),
 			},
 		]);
 
 		// Registrar evento
-		recordBattleEvent("battle_started", { initiator: playerName });
+		recordBattleEvent({
+			type: "battle_started",
+			data: { initiator: playerName },
+		});
 	};
 
 	// Função para rolar iniciativa
@@ -371,7 +495,7 @@ function BattleContent() {
 				id: Date.now().toString(),
 				sender: "System",
 				text: `${playerName} rolou iniciativa: ${result}`,
-				time: formatTime(),
+				timestamp: formatTime(),
 			},
 		]);
 
@@ -386,7 +510,10 @@ function BattleContent() {
 		});
 
 		// Registrar evento
-		recordBattleEvent("initiative_rolled", { player: playerName, result });
+		recordBattleEvent({
+			type: "initiative_rolled",
+			data: { player: playerName, result },
+		});
 	};
 
 	const performAttack = () => {
@@ -398,7 +525,7 @@ function BattleContent() {
 					id: Date.now().toString(),
 					sender: "System",
 					text: "Não é o seu turno para atacar!",
-					time: formatTime(),
+					timestamp: formatTime(),
 				},
 			]);
 			return;
@@ -424,14 +551,17 @@ function BattleContent() {
 				id: Date.now().toString(),
 				sender: "System",
 				text: `Você realiza um ataque! Rolagem: ${attackRoll}`,
-				time: formatTime(),
+				timestamp: formatTime(),
 			},
 		]);
 
 		// Registrar evento
-		recordBattleEvent("attack_performed", {
-			player: playerName,
-			roll: attackRoll,
+		recordBattleEvent({
+			type: "attack_performed",
+			data: {
+				player: playerName,
+				roll: attackRoll,
+			},
 		});
 	};
 
@@ -444,7 +574,7 @@ function BattleContent() {
 					id: Date.now().toString(),
 					sender: "System",
 					text: "Não é o seu turno para usar itens!",
-					time: formatTime(),
+					timestamp: formatTime(),
 				},
 			]);
 			return;
@@ -479,15 +609,18 @@ function BattleContent() {
 					id: Date.now().toString(),
 					sender: "System",
 					text: `Você usou uma Poção e recuperou ${hpRestored} de HP!`,
-					time: formatTime(),
+					timestamp: formatTime(),
 				},
 			]);
 
 			// Registrar evento
-			recordBattleEvent("item_used", {
-				player: playerName,
-				item: itemName,
-				effect: `Restaurou ${hpRestored} HP`,
+			recordBattleEvent({
+				type: "item_used",
+				data: {
+					player: playerName,
+					item: itemName,
+					effect: `Restaurou ${hpRestored} HP`,
+				},
 			});
 		}
 	};
@@ -521,14 +654,17 @@ function BattleContent() {
 				id: Date.now().toString(),
 				sender: "System",
 				text: `Turno finalizado. Agora é a vez de ${nextPlayer.name}!`,
-				time: formatTime(),
+				timestamp: formatTime(),
 			},
 		]);
 
 		// Registrar evento
-		recordBattleEvent("turn_ended", {
-			player: playerName,
-			nextPlayer: nextPlayer.name,
+		recordBattleEvent({
+			type: "turn_ended",
+			data: {
+				player: playerName,
+				nextPlayer: nextPlayer.name,
+			},
 		});
 	};
 
@@ -549,7 +685,7 @@ function BattleContent() {
 					id: Date.now().toString(),
 					sender: "System",
 					text: "Pelo menos um jogador precisa rolar iniciativa para iniciar o combate!",
-					time: formatTime(),
+					timestamp: formatTime(),
 				},
 			]);
 			return;
@@ -573,7 +709,7 @@ function BattleContent() {
 				id: Date.now().toString(),
 				sender: "System",
 				text: `O combate começa! ${firstPlayer.name} tem o primeiro turno com iniciativa ${firstPlayer.initiative}!`,
-				time: formatTime(),
+				timestamp: formatTime(),
 			},
 		]);
 	};
@@ -583,9 +719,9 @@ function BattleContent() {
 		if (!socket) return;
 
 		// Ouvir início de jogo
-		socket.on("gameStarted", (initialGameState: any) => {
+		socket.on("gameStarted", (initialGameState: GameStartedData) => {
 			setBattleStarted(true);
-			setGameState(initialGameState);
+			setGameState(initialGameState as unknown as string);
 
 			setMessages((prev) => [
 				...prev,
@@ -593,13 +729,13 @@ function BattleContent() {
 					id: Date.now().toString(),
 					sender: "System",
 					text: "A batalha começou! Todos os jogadores devem rolar iniciativa.",
-					time: formatTime(),
+					timestamp: formatTime(),
 				},
 			]);
 		});
 
 		// Ouvir mensagens de chat de outros jogadores
-		socket.on("messageReceived", (data: any) => {
+		socket.on("messageReceived", (data: MessageReceivedData) => {
 			console.log("Mensagem recebida:", data);
 
 			// Ignorar mensagens enviadas pelo próprio usuário para evitar duplicação
@@ -610,16 +746,16 @@ function BattleContent() {
 						id: Date.now().toString(),
 						sender: data.sender,
 						text: data.text,
-						time: data.time || formatTime(),
+						timestamp: data.timestamp || formatTime(),
 					},
 				]);
 			}
 		});
 
 		// Ouvir atualizações de estado do jogo
-		socket.on("gameStateUpdated", (data: any) => {
+		socket.on("gameStateUpdated", (data: GameStateUpdatedData) => {
 			console.log("Game state updated:", data);
-			setGameState(data.gameState);
+			setGameState(data.gameState as unknown as string);
 
 			// Se recebemos uma atualização de iniciativa, atualizamos o jogador
 			if (data.playerInitiative) {
@@ -631,7 +767,7 @@ function BattleContent() {
 					// Atualizar a lista de jogadores com a nova iniciativa
 					setPlayers((prev) =>
 						prev.map((p) =>
-							p.name === data.playerInitiative.name ? { ...p, initiative: data.playerInitiative.initiative } : p,
+							p.name === data.playerInitiative?.name ? { ...p, initiative: data.playerInitiative?.initiative } : p,
 						),
 					);
 
@@ -642,7 +778,7 @@ function BattleContent() {
 							id: Date.now().toString(),
 							sender: "System",
 							text: `${data.playerInitiative.name} rolou iniciativa: ${data.playerInitiative.initiative}`,
-							time: formatTime(),
+							timestamp: formatTime(),
 						},
 					]);
 				}
@@ -655,7 +791,7 @@ function BattleContent() {
 		});
 
 		// Ouvir ações de outros jogadores
-		socket.on("actionPerformed", (data: any) => {
+		socket.on("actionPerformed", (data: ActionPerformedData) => {
 			// Adicionar mensagem sobre a ação
 			setMessages((prev) => [
 				...prev,
@@ -663,13 +799,13 @@ function BattleContent() {
 					id: Date.now().toString(),
 					sender: "System",
 					text: data.message,
-					time: formatTime(),
+					timestamp: formatTime(),
 				},
 			]);
 
 			// Atualizar o estado do jogo
 			if (data.gameState) {
-				setGameState(data.gameState);
+				setGameState(data.gameState as unknown as string);
 			}
 
 			// Atualizar o turno atual
@@ -698,6 +834,46 @@ function BattleContent() {
 			messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
 		}
 	}, [messages.length]);
+
+	const formatChatPlayerList = () => {
+		const formatPlayer = (player: Player) => {
+			const isCurrentPlayer = player.name === playerName;
+			const isCurrentTurnPlayer = player.name === currentTurn;
+
+			let nameDisplay = player.name;
+			if (player.isHost) nameDisplay += " (Mestre)";
+			if (isCurrentPlayer) nameDisplay += " (Você)";
+			if (isCurrentTurnPlayer) nameDisplay += " ⭐";
+
+			return (
+				<div
+					key={player.id}
+					className={`flex items-center justify-between p-2 ${
+						isCurrentTurnPlayer ? "bg-amber-100 dark:bg-amber-950" : ""
+					}`}
+				>
+					<div className="flex items-center">
+						<div className="w-8 h-8 mr-2 bg-purple-200 rounded-full flex items-center justify-center">
+							{player.name.charAt(0).toUpperCase()}
+						</div>
+						<span>{nameDisplay}</span>
+					</div>
+					{gameState === "combat" && (
+						<div className="text-xs">
+							<div className="text-red-500">
+								HP: {player.hp}/{player.maxHp}
+							</div>
+							<div className="text-blue-500">
+								MP: {player.mp}/{player.maxMp}
+							</div>
+						</div>
+					)}
+				</div>
+			);
+		};
+
+		return <div className="space-y-1">{players.map((player) => formatPlayer(player))}</div>;
+	};
 
 	return (
 		<div className="flex flex-col h-screen p-4">
@@ -948,7 +1124,7 @@ function BattleContent() {
 											<div>
 												<div className="flex items-center gap-2">
 													<span className="font-medium">{msg.sender}</span>
-													<span className="text-xs text-muted-foreground">{msg.time}</span>
+													<span className="text-xs text-muted-foreground">{msg.timestamp}</span>
 												</div>
 												<p>{msg.text}</p>
 											</div>
