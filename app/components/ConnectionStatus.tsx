@@ -19,23 +19,6 @@ export default function ConnectionStatus() {
 	const [transport, setTransport] = useState<string>("");
 	const [diagnosticInfo, setDiagnosticInfo] = useState<DiagnosticInfo | null>(null);
 
-	// Tentar reconectar manualmente
-	const handleReconnect = useCallback(() => {
-		console.log("Tentando reconectar manualmente...");
-
-		// Atualize o status para "checking" para mostrar o indicador de carregamento
-		setServerStatus("checking");
-
-		// Força reconexão do socket se estiver disponível
-		if (socket) {
-			socket.disconnect();
-			socket.connect();
-		}
-
-		// Também verificar o servidor novamente
-		checkServerStatus();
-	}, [socket]);
-
 	// Verificar o status do servidor
 	const checkServerStatus = useCallback(async () => {
 		try {
@@ -59,6 +42,23 @@ export default function ConnectionStatus() {
 			setServerStatus("offline");
 		}
 	}, []);
+
+	// Tentar reconectar manualmente
+	const handleReconnect = useCallback(() => {
+		console.log("Tentando reconectar manualmente...");
+
+		// Atualize o status para "checking" para mostrar o indicador de carregamento
+		setServerStatus("checking");
+
+		// Força reconexão do socket se estiver disponível
+		if (socket) {
+			socket.disconnect();
+			socket.connect();
+		}
+
+		// Também verificar o servidor novamente
+		checkServerStatus();
+	}, [socket, checkServerStatus]);
 
 	useEffect(() => {
 		checkServerStatus();

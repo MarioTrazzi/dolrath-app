@@ -21,16 +21,19 @@ export const ChangePasswordForm = () => {
 	const [success, setSuccess] = useState<string | undefined>("");
 	const [isPending, startTransition] = useTransition();
 	const searchParams = useSearchParams();
-	if (!searchParams || !searchParams.has("token")) return null;
 
-	const token = searchParams.get("token");
-
+	// Initialize form at the top level before any conditional returns
 	const form = useForm<z.infer<typeof NewPasswordSchema>>({
 		resolver: zodResolver(NewPasswordSchema),
 		defaultValues: {
 			password: "",
 		},
 	});
+
+	// Return early after the hook calls
+	if (!searchParams || !searchParams.has("token")) return null;
+
+	const token = searchParams.get("token");
 
 	const onSubmit = (values: z.infer<typeof NewPasswordSchema>) => {
 		setError("");

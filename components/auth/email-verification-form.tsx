@@ -9,8 +9,7 @@ const EmailVerificationForm = () => {
 	const [error, setError] = useState<string | undefined>(undefined);
 	const [success, setSuccess] = useState<string | undefined>(undefined);
 	const searchParams = useSearchParams();
-	if (!searchParams || !searchParams.has("token")) return null;
-	const token = searchParams.get("token");
+	const token = searchParams?.get("token");
 
 	const automaticSubmission = useCallback(() => {
 		if (error || success) return;
@@ -33,6 +32,10 @@ const EmailVerificationForm = () => {
 	useEffect(() => {
 		automaticSubmission();
 	}, [automaticSubmission]);
+
+	// Return null after hooks are defined
+	if (!searchParams || !searchParams.has("token")) return null;
+
 	return (
 		<div className="flex flex-1 justify-center items-center">
 			<AuthCard title="Verifique seu E-mail">
