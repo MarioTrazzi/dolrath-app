@@ -25,7 +25,21 @@ export const SocketProvider = ({ children }: { children: ReactNode }) => {
 	useEffect(() => {
 		const initSocket = async () => {
 			try {
-				const socketUrl = process.env.NEXT_PUBLIC_SOCKET_URL || "http://localhost:3001";
+				// Determinar a URL do servidor baseada no ambiente
+				let socketUrl = process.env.NEXT_PUBLIC_SOCKET_URL;
+
+				// Se não houver URL definida nas variáveis de ambiente, determinar baseado no hostname
+				if (!socketUrl) {
+					// Verificar se estamos em ambiente de produção (Vercel) ou desenvolvimento
+					const isProduction =
+						typeof window !== "undefined" &&
+						(window.location.hostname.includes("vercel.app") || window.location.hostname.includes("dolrath-app"));
+
+					// Usar a URL de produção ou localhost baseado no ambiente
+					socketUrl = isProduction ? "https://dolrath-app.onrender.com" : "http://localhost:3001";
+				}
+
+				console.log("Ambiente detectado:", typeof window !== "undefined" ? window.location.hostname : "SSR");
 				console.log("Tentando conectar ao servidor socket:", socketUrl);
 
 				const io = (await import("socket.io-client")).default;
@@ -43,7 +57,7 @@ export const SocketProvider = ({ children }: { children: ReactNode }) => {
 				const newSocket = io(socketUrlWithProtocol, {
 					transports: ["websocket", "polling"],
 					reconnection: true,
-					reconnectionAttempts: Infinity,
+					reconnectionAttempts: Number.POSITIVE_INFINITY,
 					reconnectionDelay: 1000,
 					reconnectionDelayMax: 5000,
 					timeout: 20000,

@@ -345,6 +345,13 @@ io.on("connection", (socket) => {
 
 	console.log("User connected:", socket.id);
 
+	// Simple ping handler for connection testing
+	socket.on("ping", (data) => {
+		console.log(`Received ping from ${socket.id}`);
+		// Send pong response with same timestamp or current time
+		socket.emit("pong", { timestamp: data.timestamp || Date.now() });
+	});
+
 	socket.on("createRoom", ({ playerName }) => {
 		const roomCode = generateRoomCode().toUpperCase();
 		socket.join(roomCode);

@@ -19,7 +19,9 @@
 		"migrate-images": "tsx scripts/migrate-images.ts",
 		"server": "node server/server.js",
 		"dev:all": "concurrently \"npm run dev\" \"npm run server\"",
-		"start:prod": "NODE_ENV=production concurrently \"npm run start\" \"npm run server\""
+		"start:prod": "NODE_ENV=production concurrently \"npm run start\" \"npm run server\"",
+		"clean": "rm -rf .next && rm -rf node_modules/.cache",
+		"deploy:prep": "npm run clean && npm run build"
 	},
 	"dependencies": {
 		"@auth/prisma-adapter": "^2.0.0",
