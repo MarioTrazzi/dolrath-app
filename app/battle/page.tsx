@@ -13,110 +13,111 @@ import React from "react";
 interface Player {
 	id: string;
 	name: string;
-	characterId: string;
+	characterName: string;
 	characterClass: string;
-	hp: number;
-	mp: number;
 	isHost: boolean;
-	maxHp: number;
-	maxMp: number;
+	maxHP: number;
+	currentHP: number;
+	maxMP: number;
+	currentMP: number;
 	initiative: number;
+	isReady: boolean;
+	avatarUrl: string;
+	socketId?: string;
 }
 
 // Definir interfaces para os diferentes tipos de dados de eventos
 interface ChatMessageData {
-	id: string;
 	sender: string;
-	text: string;
-	timestamp: string;
+	content: string;
+	isSystem: boolean;
+	timestamp: number;
 }
 
 interface PlayerJoinedData {
-	id: string;
-	name: string;
-	characterId: string;
-	characterClass: string;
-	hp: number;
-	mp: number;
-	isHost: boolean;
-	maxHp: number;
-	maxMp: number;
-	initiative: number;
+	player: Player;
+	message: string;
 }
 
 interface GameStateData {
-	state: string;
-	currentTurn: string;
-	turnOrder?: Player[];
 	players: Player[];
-	battleStatus: string;
-	roundCount: number;
-	timestamp: string;
+	currentTurn: string;
+	battleStarted: boolean;
+	battleEnded: boolean;
+	state: string;
+	playerInitiative?: {
+		name: string;
+		initiative: number;
+	};
 }
 
 interface RollResultData {
-	playerId: string;
-	playerName: string;
-	rollType: string;
-	result: number;
-	modifiers?: number;
-	modifier?: number;
+	player: string;
+	roll: number;
+	sides: number;
+	modifier: number;
 	total: number;
-	timestamp: string;
+	description: string;
 }
 
 interface ActionResultData {
-	actor: string;
+	attacker: string;
+	defender: string;
 	action: string;
-	target: string;
-	damage?: number;
-	healing?: number;
-	sourcePlayerId: string;
-	targetPlayerId: string;
-	actionType: string;
-	result: number;
+	damage: number;
 	description: string;
-	timestamp: string;
+	gameState?: {
+		state: string;
+		currentTurn: string;
+	};
 }
 
 interface PlayerStatsUpdateData {
 	playerId: string;
-	hp: number;
-	mp: number;
-	maxHp: number;
-	maxMp: number;
-	timestamp: string;
+	currentHP: number;
+	maxHP: number;
+	currentMP: number;
+	maxMP: number;
 }
 
 // Adicionamos uma interface para o estado inicial do jogo
-interface GameStartedData extends GameStateData {
-	// Este tipo estende o GameStateData para garantir compatibilidade
+interface GameStartedData {
+	gameState: {
+		state: string;
+	};
 }
 
 // Interface para mensagens recebidas
 interface MessageReceivedData {
 	sender: string;
-	text: string;
-	timestamp: string;
+	content: string;
+	isSystem: boolean;
+	timestamp: number;
 }
 
 // Interface para atualização do estado do jogo
 interface GameStateUpdatedData {
-	gameState: GameStateData;
+	state: string;
+	currentTurn: string;
 	playerInitiative?: {
 		name: string;
 		initiative: number;
 	};
-	currentTurn?: string;
 }
 
 // Interface para ações realizadas
 interface ActionPerformedData {
-	message: string;
-	gameState?: GameStateData;
-	currentTurn?: string;
+	player: string;
+	action: string;
+	target?: string;
+	result: string;
+	gameState?: {
+		state: string;
+		currentTurn: string;
+	};
 	actionType?: string;
 	targetPlayer?: string;
+	currentTurn?: string;
 }
 
 // Definir tipos para event handlers e parâmetros de eventos específicos
@@ -209,10 +210,10 @@ function BattleContent() {
 			const handlePlayerJoined: PlayerJoinedHandler = (data) => {
 				setPlayers((prevPlayers) => {
 					// Se o jogador já existe, não adicione novamente
-					if (prevPlayers.some((p) => p.id === data.id)) {
+					if (prevPlayers.some((p) => p.id === data.player.id)) {
 						return prevPlayers;
 					}
-					return [...prevPlayers, data];
+					return [...prevPlayers, data.player];
 				});
 
 				// Se o jogador atual for o host, atualize os jogadores existentes para o novo jogador
@@ -231,10 +232,10 @@ function BattleContent() {
 				setMessages((prevMessages) => [
 					...prevMessages,
 					{
-						id: `join-${data.id}`,
 						sender: "System",
-						text: `${data.name} entrou na sala.`,
-						timestamp: formatTime(new Date()),
+						content: `${data.player.name} entrou na sala.`,
+						isSystem: true,
+						timestamp: Date.now(),
 					},
 				]);
 			};
@@ -256,7 +257,7 @@ function BattleContent() {
 
 			// Handle player updates from host
 			socket.on("updateAllPlayers", (allPlayers: PlayerJoinedData[]) => {
-				setPlayers(allPlayers);
+				setPlayers(allPlayers.map((data) => data.player));
 			});
 
 			// Handle roll result
@@ -265,56 +266,60 @@ function BattleContent() {
 				setMessages((prevMessages) => [
 					...prevMessages,
 					{
-						id: `roll-${Date.now()}`,
 						sender: "System",
-						text: `${data.playerName} rolou ${data.result} para ${data.rollType}.`,
-						timestamp: formatTime(new Date()),
+						content: `${data.player} rolou ${data.roll} para ${data.description}.`,
+						isSystem: true,
+						timestamp: Date.now(),
 					},
 				]);
 
 				// Se for uma rolagem de iniciativa, atualize o jogador
-				if (data.rollType === "iniciativa" && isHost) {
+				if (data.description === "iniciativa" && isHost) {
 					setPlayers((prevPlayers) =>
-						prevPlayers.map((player) =>
-							player.name === data.playerName ? { ...player, initiative: data.result } : player,
-						),
+						prevPlayers.map((player) => (player.name === data.player ? { ...player, initiative: data.roll } : player)),
 					);
 				}
 			};
 
-			// Handle action result
+			// Handle the performed action
 			const handleActionResult: ActionResultHandler = (data) => {
-				let messageText = `${data.actor} usou ${data.action} em ${data.target}`;
+				let messageText = `${data.attacker} usou ${data.action} em ${data.defender}`;
 
 				if (data.damage) {
 					messageText += ` causando ${data.damage} de dano`;
-				} else if (data.healing) {
-					messageText += ` curando ${data.healing} de HP`;
 				}
 
 				setMessages((prevMessages) => [
 					...prevMessages,
 					{
-						id: `action-${Date.now()}`,
 						sender: "System",
-						text: messageText,
-						timestamp: formatTime(new Date()),
+						content: messageText,
+						isSystem: true,
+						timestamp: Date.now(),
 					},
 				]);
+
+				// Atualizar o estado do jogo
+				if (data.gameState) {
+					setGameState(data.gameState.state);
+					setCurrentTurn(data.gameState.currentTurn);
+				}
 			};
 
 			// Handle player stats update
 			const handlePlayerStatsUpdate: PlayerStatsUpdateHandler = (data) => {
 				setPlayers((prevPlayers) =>
-					prevPlayers.map((player) => (player.id === data.playerId ? { ...player, hp: data.hp, mp: data.mp } : player)),
+					prevPlayers.map((player) =>
+						player.id === data.playerId ? { ...player, currentHP: data.currentHP, currentMP: data.currentMP } : player,
+					),
 				);
 
 				// Se o ID do jogador for o do cliente atual, também atualize os stats locais
 				if (data.playerId === socket.id) {
 					setPlayerStats((prevStats) => ({
 						...prevStats,
-						hp: data.hp,
-						mp: data.mp,
+						hp: data.currentHP,
+						mp: data.currentMP,
 					}));
 				}
 			};
@@ -327,10 +332,10 @@ function BattleContent() {
 					setMessages((prevMessages) => [
 						...prevMessages,
 						{
-							id: `disconnect-${data.id}`,
 							sender: "System",
-							text: `${disconnectedPlayer.name} saiu da sala.`,
-							timestamp: formatTime(new Date()),
+							content: `${disconnectedPlayer.name} saiu da sala.`,
+							isSystem: true,
+							timestamp: Date.now(),
 						},
 					]);
 
@@ -393,10 +398,10 @@ function BattleContent() {
 		if (!chatMessage.trim()) return;
 
 		const msgObj = {
-			id: Date.now().toString(),
 			sender: playerName,
-			text: chatMessage,
-			timestamp: formatTime(),
+			content: chatMessage,
+			isSystem: false,
+			timestamp: Date.now(),
 		};
 
 		// Add to local message history
@@ -465,10 +470,10 @@ function BattleContent() {
 		setMessages((prev) => [
 			...prev,
 			{
-				id: Date.now().toString(),
 				sender: "System",
-				text: "A batalha começou! Todos os jogadores devem rolar iniciativa.",
-				timestamp: formatTime(),
+				content: "A batalha começou! Todos os jogadores devem rolar iniciativa.",
+				isSystem: true,
+				timestamp: Date.now(),
 			},
 		]);
 
@@ -508,10 +513,10 @@ function BattleContent() {
 		setMessages((prev) => [
 			...prev,
 			{
-				id: Date.now().toString(),
 				sender: "System",
-				text: `${playerName} rolou iniciativa: ${result}`,
-				timestamp: formatTime(),
+				content: `${playerName} rolou iniciativa: ${result}`,
+				isSystem: true,
+				timestamp: Date.now(),
 			},
 		]);
 
@@ -540,10 +545,10 @@ function BattleContent() {
 			setMessages((prev) => [
 				...prev,
 				{
-					id: Date.now().toString(),
 					sender: "System",
-					text: "Não é o seu turno para atacar!",
-					timestamp: formatTime(),
+					content: "Não é o seu turno para atacar!",
+					isSystem: true,
+					timestamp: Date.now(),
 				},
 			]);
 			return;
@@ -568,10 +573,10 @@ function BattleContent() {
 		setMessages((prev) => [
 			...prev,
 			{
-				id: Date.now().toString(),
 				sender: "System",
-				text: `Você realiza um ataque! Rolagem: ${attackRoll}`,
-				timestamp: formatTime(),
+				content: `Você realiza um ataque! Rolagem: ${attackRoll}`,
+				isSystem: true,
+				timestamp: Date.now(),
 			},
 		]);
 
@@ -591,10 +596,10 @@ function BattleContent() {
 			setMessages((prev) => [
 				...prev,
 				{
-					id: Date.now().toString(),
 					sender: "System",
-					text: "Não é o seu turno para usar itens!",
-					timestamp: formatTime(),
+					content: "Não é o seu turno para usar itens!",
+					isSystem: true,
+					timestamp: Date.now(),
 				},
 			]);
 			return;
@@ -628,10 +633,10 @@ function BattleContent() {
 			setMessages((prev) => [
 				...prev,
 				{
-					id: Date.now().toString(),
 					sender: "System",
-					text: `Você usou uma Poção e recuperou ${hpRestored} de HP!`,
-					timestamp: formatTime(),
+					content: `Você usou uma Poção e recuperou ${hpRestored} de HP!`,
+					isSystem: true,
+					timestamp: Date.now(),
 				},
 			]);
 
@@ -675,10 +680,10 @@ function BattleContent() {
 		setMessages((prev) => [
 			...prev,
 			{
-				id: Date.now().toString(),
 				sender: "System",
-				text: `Turno finalizado. Agora é a vez de ${nextPlayer.name}!`,
-				timestamp: formatTime(),
+				content: `Turno finalizado. Agora é a vez de ${nextPlayer.name}!`,
+				isSystem: true,
+				timestamp: Date.now(),
 			},
 		]);
 
@@ -706,10 +711,10 @@ function BattleContent() {
 			setMessages((prev) => [
 				...prev,
 				{
-					id: Date.now().toString(),
 					sender: "System",
-					text: "Pelo menos um jogador precisa rolar iniciativa para iniciar o combate!",
-					timestamp: formatTime(),
+					content: "Pelo menos um jogador precisa rolar iniciativa para iniciar o combate!",
+					isSystem: true,
+					timestamp: Date.now(),
 				},
 			]);
 			return;
@@ -732,10 +737,10 @@ function BattleContent() {
 		setMessages((prev) => [
 			...prev,
 			{
-				id: Date.now().toString(),
 				sender: "System",
-				text: `O combate começa! ${firstPlayer.name} tem o primeiro turno com iniciativa ${firstPlayer.initiative}!`,
-				timestamp: formatTime(),
+				content: `O combate começa! ${firstPlayer.name} tem o primeiro turno com iniciativa ${firstPlayer.initiative}!`,
+				isSystem: true,
+				timestamp: Date.now(),
 			},
 		]);
 	};
@@ -747,15 +752,15 @@ function BattleContent() {
 		// Ouvir início de jogo
 		const handleGameStarted = (initialGameState: GameStartedData) => {
 			setBattleStarted(true);
-			setGameState(initialGameState as unknown as string);
+			setGameState(initialGameState.gameState.state);
 
 			setMessages((prev) => [
 				...prev,
 				{
-					id: Date.now().toString(),
 					sender: "System",
-					text: "A batalha começou! Todos os jogadores devem rolar iniciativa.",
-					timestamp: formatTime(),
+					content: "A batalha começou! Todos os jogadores devem rolar iniciativa.",
+					isSystem: true,
+					timestamp: Date.now(),
 				},
 			]);
 		};
@@ -769,10 +774,10 @@ function BattleContent() {
 				setMessages((prev) => [
 					...prev,
 					{
-						id: Date.now().toString(),
 						sender: data.sender,
-						text: data.text,
-						timestamp: data.timestamp || formatTime(),
+						content: data.content,
+						isSystem: data.isSystem,
+						timestamp: data.timestamp,
 					},
 				]);
 			}
@@ -780,39 +785,22 @@ function BattleContent() {
 
 		// Ouvir atualizações de estado do jogo
 		const handleGameStateUpdated = (data: GameStateUpdatedData) => {
-			console.log("Game state updated:", data);
-			setGameState(data.gameState as unknown as string);
+			setGameState(data.state);
+			setCurrentTurn(data.currentTurn);
 
-			// Se recebemos uma atualização de iniciativa, atualizamos o jogador
+			// Se temos uma atualização de iniciativa de jogador
 			if (data.playerInitiative) {
-				console.log("Recebido iniciativa de jogador:", data.playerInitiative);
-
-				// Versão para produção: apenas atualizar se for de outro jogador
-				// para evitar duplicação quando o mesmo jogador envia e recebe eventos
-				if (data.playerInitiative.name !== playerName) {
-					// Atualizar a lista de jogadores com a nova iniciativa
-					setPlayers((prev) =>
-						prev.map((p) =>
-							p.name === data.playerInitiative?.name ? { ...p, initiative: data.playerInitiative?.initiative } : p,
-						),
-					);
-
-					// Adicionar mensagem no chat sobre a rolagem
-					setMessages((prev) => [
-						...prev,
-						{
-							id: Date.now().toString(),
-							sender: "System",
-							text: `${data.playerInitiative?.name || "Desconhecido"} rolou iniciativa: ${data.playerInitiative?.initiative || 0}`,
-							timestamp: formatTime(),
-						},
-					]);
-				}
+				// Atualizar o jogador na lista de jogadores
+				setPlayers((prev) =>
+					prev.map((p) =>
+						p.name === data.playerInitiative?.name ? { ...p, initiative: data.playerInitiative.initiative } : p,
+					),
+				);
 			}
 
-			// Se recebemos uma atualização de turno, atualizamos o turno atual
-			if (data.currentTurn) {
-				setCurrentTurn(data.currentTurn);
+			// Se o estado do jogo é combate, atualizar a flag de batalha iniciada
+			if (data.state === "combat") {
+				setBattleStarted(true);
 			}
 		};
 
@@ -822,20 +810,18 @@ function BattleContent() {
 			setMessages((prev) => [
 				...prev,
 				{
-					id: Date.now().toString(),
 					sender: "System",
-					text: data.message,
-					timestamp: formatTime(),
+					content: data.result,
+					isSystem: true,
+					timestamp: Date.now(),
 				},
 			]);
 
 			// Atualizar o estado do jogo
 			if (data.gameState) {
-				setGameState(data.gameState as unknown as string);
-			}
-
-			// Atualizar o turno atual
-			if (data.currentTurn) {
+				setGameState(data.gameState.state);
+				setCurrentTurn(data.gameState.currentTurn);
+			} else if (data.currentTurn) {
 				setCurrentTurn(data.currentTurn);
 			}
 
@@ -846,16 +832,27 @@ function BattleContent() {
 			}
 		};
 
-		socket.on("gameStarted", handleGameStarted);
-		socket.on("messageReceived", handleMessageReceived);
-		socket.on("gameStateUpdated", handleGameStateUpdated);
-		socket.on("actionPerformed", handleActionPerformed);
+		socket.on("gameStarted", (initialGameState: GameStartedData) => {
+			handleGameStarted(initialGameState);
+		});
+
+		socket.on("messageReceived", (data: MessageReceivedData) => {
+			handleMessageReceived(data);
+		});
+
+		socket.on("gameStateUpdated", (data: GameStateUpdatedData) => {
+			handleGameStateUpdated(data);
+		});
+
+		socket.on("actionPerformed", (data: ActionPerformedData) => {
+			handleActionPerformed(data);
+		});
 
 		return () => {
-			socket.off("gameStarted", handleGameStarted);
-			socket.off("messageReceived", handleMessageReceived);
-			socket.off("gameStateUpdated", handleGameStateUpdated);
-			socket.off("actionPerformed", handleActionPerformed);
+			socket.off("gameStarted");
+			socket.off("messageReceived");
+			socket.off("gameStateUpdated");
+			socket.off("actionPerformed");
 		};
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [socket, playerName]);
@@ -893,10 +890,10 @@ function BattleContent() {
 					{gameState === "combat" && (
 						<div className="text-xs">
 							<div className="text-red-500">
-								HP: {player.hp}/{player.maxHp}
+								HP: {player.currentHP}/{player.maxHP}
 							</div>
 							<div className="text-blue-500">
-								MP: {player.mp}/{player.maxMp}
+								MP: {player.currentMP}/{player.maxMP}
 							</div>
 						</div>
 					)}
@@ -907,25 +904,70 @@ function BattleContent() {
 		return <div className="space-y-1">{players.map((player) => formatPlayer(player))}</div>;
 	};
 
+	// Return view
 	return (
-		<div className="flex flex-col h-screen p-4">
-			<header className="flex justify-between items-center mb-4 p-4 bg-card rounded-lg">
+		<div className="flex flex-col h-screen p-2 md:p-4">
+			<header className="flex justify-between items-center mb-4 p-2 md:p-4 bg-card rounded-lg">
 				<div>
-					<h1 className="text-2xl font-bold">Sala de Batalha</h1>
+					<h1 className="text-xl md:text-2xl font-bold">Sala de Batalha</h1>
 					<p className="text-muted-foreground">Código: {roomCode}</p>
 				</div>
 				<div className="flex items-center gap-2">
-					<span className="text-sm bg-primary/10 px-2 py-1 rounded">{isHost ? "Anfitrião" : "Jogador"}</span>
-					<span className="font-medium">{playerName}</span>
+					<span className="text-xs md:text-sm bg-primary/10 px-2 py-1 rounded">{isHost ? "Anfitrião" : "Jogador"}</span>
+					<span className="font-medium text-sm md:text-base">{playerName}</span>
 					<span className="text-xs bg-secondary/30 px-2 py-1 rounded">{characterClass}</span>
 				</div>
 			</header>
 
-			<div className="grid md:grid-cols-3 gap-4 flex-1 overflow-hidden">
-				{/* Player info column */}
-				<div className="space-y-4">
+			{/* Mobile-friendly layout - The order of elements changes on small screens */}
+			<div className="grid grid-cols-1 md:grid-cols-3 gap-4 flex-1 overflow-hidden">
+				{/* Chat column - reordered to show up first on small screens */}
+				<div className="order-1 md:order-2 md:col-span-2 flex flex-col">
+					<Card className="flex-1 flex flex-col">
+						<CardHeader className="py-2 md:py-4">
+							<CardTitle>Chat de Batalha</CardTitle>
+						</CardHeader>
+						<CardContent className="flex-1 overflow-y-auto max-h-[300px] md:max-h-[400px]">
+							<div className="space-y-4">
+								{messages.length === 0 ? (
+									<p className="text-center text-muted-foreground">Nenhuma mensagem ainda. Comece a conversa!</p>
+								) : (
+									messages.map((msg) => (
+										<div key={msg.timestamp} className="flex space-x-2">
+											<div className="bg-primary/10 rounded-full w-8 h-8 flex items-center justify-center shrink-0">
+												{msg.sender[0].toUpperCase()}
+											</div>
+											<div>
+												<div className="flex items-center gap-2">
+													<span className="font-medium">{msg.sender}</span>
+													<span className="text-xs text-muted-foreground">{formatTime(new Date(msg.timestamp))}</span>
+												</div>
+												<p className="break-words">{msg.content}</p>
+											</div>
+										</div>
+									))
+								)}
+								<div ref={messagesEndRef} />
+							</div>
+						</CardContent>
+						<div className="p-2 md:p-4 border-t">
+							<form onSubmit={(e) => sendMessage(e)} className="flex gap-2">
+								<Input
+									value={chatMessage}
+									onChange={(e) => setChatMessage(e.target.value)}
+									placeholder="Digite sua mensagem..."
+									className="flex-1"
+								/>
+								<Button type="submit">Enviar</Button>
+							</form>
+						</div>
+					</Card>
+				</div>
+
+				{/* Player info column and game controls - reordered to show up second on small screens */}
+				<div className="order-2 md:order-1 space-y-4">
 					<Card>
-						<CardHeader>
+						<CardHeader className="py-2 md:py-4">
 							<CardTitle>Seu Personagem</CardTitle>
 							{characterClass && <CardDescription>{characterClass}</CardDescription>}
 						</CardHeader>
@@ -967,7 +1009,7 @@ function BattleContent() {
 
 					{/* Painel de Batalha */}
 					<Card>
-						<CardHeader>
+						<CardHeader className="py-2 md:py-4">
 							<CardTitle>Status da Batalha</CardTitle>
 						</CardHeader>
 						<CardContent>
@@ -1020,7 +1062,7 @@ function BattleContent() {
 											<div className="mt-4 space-y-2">
 												<p className="text-sm font-medium">Status de Iniciativa:</p>
 												{players.map((player) => (
-													<div key={player.id || player.characterId} className="text-sm flex justify-between">
+													<div key={player.id || player.name} className="text-sm flex justify-between">
 														<span>{player.name}</span>
 														{player.initiative > 0 ? (
 															<span className="text-primary">Rolou: {player.initiative}</span>
@@ -1050,7 +1092,24 @@ function BattleContent() {
 												<Button onClick={performAttack} variant="destructive" size="sm">
 													Atacar
 												</Button>
-												<Button onClick={() => useItem("Poção")} variant="outline" size="sm">
+												<Button
+													onClick={() => {
+														// Change to not use the function name that starts with "use"
+														// since it violates React Hook naming conventions
+														const handleItemUse = (name: string) => {
+															if (socket) {
+																socket.emit("useItem", {
+																	roomCode,
+																	player: playerName,
+																	itemName: name,
+																});
+															}
+														};
+														handleItemUse("Poção");
+													}}
+													variant="outline"
+													size="sm"
+												>
 													Usar Poção
 												</Button>
 												<Button onClick={endTurn} variant="secondary" size="sm" className="col-span-2">
@@ -1070,7 +1129,7 @@ function BattleContent() {
 
 					{/* Lista de Jogadores */}
 					<Card>
-						<CardHeader>
+						<CardHeader className="py-2 md:py-4">
 							<CardTitle>Jogadores ({players.length})</CardTitle>
 						</CardHeader>
 						<CardContent>
@@ -1080,7 +1139,7 @@ function BattleContent() {
 								<div className="space-y-2">
 									{players.map((player, index) => (
 										<div
-											key={player.id || player.characterId || index}
+											key={player.id || player.name || index}
 											className={`flex justify-between items-center p-2 rounded ${
 												currentTurn === player.name ? "bg-primary/10" : ""
 											}`}
@@ -1116,7 +1175,7 @@ function BattleContent() {
 					{/* Removido o card de Inventário original e colocado botão de compartilhar no final */}
 					{battleStarted ? null : (
 						<Card>
-							<CardHeader>
+							<CardHeader className="py-2 md:py-4">
 								<CardTitle>Compartilhar</CardTitle>
 							</CardHeader>
 							<CardContent>
@@ -1135,49 +1194,6 @@ function BattleContent() {
 							</CardContent>
 						</Card>
 					)}
-				</div>
-
-				{/* Chat column (resto do código mantido igual) */}
-				<div className="md:col-span-2 flex flex-col">
-					<Card className="flex-1 flex flex-col">
-						<CardHeader>
-							<CardTitle>Chat de Batalha</CardTitle>
-						</CardHeader>
-						<CardContent className="flex-1 overflow-y-auto max-h-[400px]">
-							<div className="space-y-4">
-								{messages.length === 0 ? (
-									<p className="text-center text-muted-foreground">Nenhuma mensagem ainda. Comece a conversa!</p>
-								) : (
-									messages.map((msg) => (
-										<div key={msg.id} className="flex space-x-2">
-											<div className="bg-primary/10 rounded-full w-8 h-8 flex items-center justify-center">
-												{msg.sender[0].toUpperCase()}
-											</div>
-											<div>
-												<div className="flex items-center gap-2">
-													<span className="font-medium">{msg.sender}</span>
-													<span className="text-xs text-muted-foreground">{msg.timestamp}</span>
-												</div>
-												<p>{msg.text}</p>
-											</div>
-										</div>
-									))
-								)}
-								<div ref={messagesEndRef} />
-							</div>
-						</CardContent>
-						<div className="p-4 border-t">
-							<form onSubmit={(e) => sendMessage(e)} className="flex gap-2">
-								<Input
-									value={chatMessage}
-									onChange={(e) => setChatMessage(e.target.value)}
-									placeholder="Digite sua mensagem..."
-									className="flex-1"
-								/>
-								<Button type="submit">Enviar</Button>
-							</form>
-						</div>
-					</Card>
 				</div>
 			</div>
 		</div>
