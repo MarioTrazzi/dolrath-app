@@ -559,7 +559,7 @@ function BattleContent() {
 			// Create local function to record events
 			const recordEvent = async (eventType: string, data: Record<string, unknown>) => {
 				try {
-					await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001"}/api/battles/record`, {
+					await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/battles/record`, {
 						method: "POST",
 						headers: {
 							"Content-Type": "application/json",

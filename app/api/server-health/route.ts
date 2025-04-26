@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 
 // Verifique a conexão com o servidor de sockets
 export async function GET() {
-	const socketUrl = process.env.NEXT_PUBLIC_SOCKET_URL || "http://localhost:3001";
+	const socketUrl = process.env.NEXT_PUBLIC_SOCKET_URL;
 
 	// Para diagnóstico, devolva a URL que está tentando acessar
 	const diagnosticInfo = {

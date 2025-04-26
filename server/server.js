@@ -8,7 +8,7 @@ const path = require("node:path");
 // Configuração de CORS
 const CORS_ORIGINS = process.env.CORS_ORIGINS
 	? process.env.CORS_ORIGINS.split(",")
-	: ["http://localhost:3000", "http://localhost:3001", "https://dolrath-app.vercel.app"];
+	: ["https://dolrath-app.vercel.app"];
 console.log(`CORS configured for origins: ${CORS_ORIGINS}`);
 
 // Configuração mais explícita do CORS
