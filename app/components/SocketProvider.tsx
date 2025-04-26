@@ -25,39 +25,14 @@ export const SocketProvider = ({ children }: { children: ReactNode }) => {
 	useEffect(() => {
 		const initSocket = async () => {
 			try {
-				// Determinar a URL do servidor baseada no ambiente
-				let socketUrl = process.env.NEXT_PUBLIC_SOCKET_URL;
-
-				// Se não houver URL definida nas variáveis de ambiente, determinar baseado no hostname
-				if (!socketUrl) {
-					// Verificar se estamos em ambiente de produção (Vercel) ou desenvolvimento
-					const isProduction =
-						typeof window !== "undefined" &&
-						window.location.hostname !== "localhost" &&
-						window.location.hostname !== "127.0.0.1";
-
-					// Usar a URL de produção ou localhost baseado no ambiente
-					socketUrl = isProduction ? "https://dolrath-app.onrender.com" : "http://localhost:3001";
-
-					console.log(`Ambiente detectado: ${isProduction ? "Produção" : "Desenvolvimento"}`);
-					console.log(`Hostname: ${typeof window !== "undefined" ? window.location.hostname : "SSR"}`);
-				}
-
+				// URL fixa para o servidor de socket
+				const socketUrl = "https://dolrath-app.onrender.com";
 				console.log("Tentando conectar ao servidor socket:", socketUrl);
 
 				const io = (await import("socket.io-client")).default;
 
-				// Ajustar protocolo automaticamente baseado em HTTPS
-				let socketUrlWithProtocol = socketUrl;
-				if (typeof window !== "undefined") {
-					// Se estamos no navegador e a página está em HTTPS, garante que o socket usa SSL
-					if (window.location.protocol === "https:" && socketUrlWithProtocol.startsWith("http:")) {
-						socketUrlWithProtocol = socketUrlWithProtocol.replace("http:", "https:");
-						console.log("Protocolo ajustado para HTTPS:", socketUrlWithProtocol);
-					}
-				}
-
-				const newSocket = io(socketUrlWithProtocol, {
+				// Criar a instância do socket com configuração explícita
+				const newSocket = io(socketUrl, {
 					transports: ["websocket", "polling"],
 					reconnection: true,
 					reconnectionAttempts: Number.POSITIVE_INFINITY,
@@ -66,15 +41,22 @@ export const SocketProvider = ({ children }: { children: ReactNode }) => {
 					timeout: 20000,
 					autoConnect: true,
 					forceNew: true,
+					// Não usar o path padrão /socket.io
+					path: "/socket.io/",
 					withCredentials: true,
-					extraHeaders: {
-						"My-Custom-Header": "Dolrath App",
-					},
+				});
+
+				// Log para debugar a URL que está sendo usada
+				console.log("Detalhes da conexão:", {
+					url: socketUrl,
+					path: "/socket.io/",
+					engine: newSocket.io?.engine?.transport?.name,
 				});
 
 				newSocket.on("connect", () => {
 					console.log("Socket conectado com sucesso usando:", newSocket.io.engine.transport.name);
 					console.log("Socket ID:", newSocket.id);
+					console.log("URL usada:", socketUrl);
 					setIsConnected(true);
 				});
 
