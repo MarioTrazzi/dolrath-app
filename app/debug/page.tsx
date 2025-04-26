@@ -3,9 +3,12 @@
 import { useState, useEffect } from "react";
 import { useSocket } from "../components/SocketProvider";
 
+type DebugInfo = Record<string, unknown>;
+type PongData = { timestamp?: number };
+
 export default function DebugPage() {
 	const { socket, isConnected } = useSocket();
-	const [info, setInfo] = useState<any>(null);
+	const [info, setInfo] = useState<DebugInfo | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const [messages, setMessages] = useState<string[]>([]);
 	const [socketId, setSocketId] = useState<string | null>(null);
@@ -32,8 +35,8 @@ export default function DebugPage() {
 
 			// Event listeners para eventos do socket
 			const onConnect = () => {
-				setSocketId(socket.id);
-				addMessage(`Conectado ao servidor socket com ID: ${socket.id}`);
+				setSocketId(socket.id || null);
+				addMessage(`Conectado ao servidor socket com ID: ${socket.id || "desconhecido"}`);
 			};
 
 			const onDisconnect = (reason: string) => {
@@ -48,7 +51,7 @@ export default function DebugPage() {
 				addMessage(`Tentativa de reconexão #${attempt}`);
 			};
 
-			const onAny = (event: string, ...args: any[]) => {
+			const onAny = (event: string, ...args: unknown[]) => {
 				addMessage(`Evento recebido: ${event} - Dados: ${JSON.stringify(args)}`);
 			};
 
@@ -91,7 +94,7 @@ export default function DebugPage() {
 		}, 5000);
 
 		// Listen for pong response
-		socket.once("pong", (data: any) => {
+		socket.once("pong", (data: PongData) => {
 			clearTimeout(timeout);
 			const latency = Date.now() - (data.timestamp || Date.now());
 			addMessage(`Pong recebido do servidor! Latência: ${latency}ms`);
@@ -115,7 +118,11 @@ export default function DebugPage() {
 						<span className="font-semibold">Socket ID:</span> {socketId}
 					</p>
 				)}
-				<button onClick={testConnection} className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">
+				<button
+					onClick={testConnection}
+					className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+					type="button"
+				>
 					Testar Conexão (Ping)
 				</button>
 			</div>
@@ -140,7 +147,7 @@ export default function DebugPage() {
 					{messages.length === 0 ? (
 						<p className="text-gray-500">Nenhum evento registrado ainda...</p>
 					) : (
-						messages.map((msg, i) => <div key={i}>{msg}</div>)
+						messages.map((msg) => <div key={msg}>{msg}</div>)
 					)}
 				</div>
 			</div>
