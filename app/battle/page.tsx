@@ -233,6 +233,40 @@ function BattleContent() {
 	// Adicionar uma referência para o contêiner de mensagens
 	const messagesEndRef = React.useRef<HTMLDivElement>(null);
 
+	// Move sendMessage function out of useEffect
+	const sendMessage = (e?: React.FormEvent) => {
+		// Prevent form submission if called from a form
+		if (e) e.preventDefault();
+
+		if (!chatMessage.trim()) return;
+
+		// ID único para a mensagem local
+		const messageId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+		// Adicionar a mensagem localmente com flag isLocal para identificar depois
+		const newMessage: ChatMessageData = {
+			sender: playerName,
+			content: chatMessage,
+			timestamp: Date.now(),
+			isSystem: false,
+			isLocal: true,
+			id: messageId,
+		};
+
+		setMessages((prev) => [...prev, newMessage]);
+		setChatMessage("");
+
+		// Enviar para o servidor
+		if (socket) {
+			socket.emit("chatMessage", {
+				roomId: roomCode,
+				sender: playerName,
+				text: chatMessage,
+				messageId: messageId,
+			});
+		}
+	};
+
 	useEffect(() => {
 		if (!socket || !roomCode || !playerName || hasJoinedRef.current) return;
 
@@ -404,37 +438,6 @@ function BattleContent() {
 				]);
 			};
 
-			// Função para enviar mensagem
-			const sendMessage = () => {
-				if (!chatMessage.trim()) return;
-
-				// ID único para a mensagem local
-				const messageId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-
-				// Adicionar a mensagem localmente com flag isLocal para identificar depois
-				const newMessage: ChatMessageData = {
-					sender: playerName,
-					content: chatMessage,
-					timestamp: Date.now(),
-					isSystem: false,
-					isLocal: true,
-					id: messageId,
-				};
-
-				setMessages((prev) => [...prev, newMessage]);
-				setChatMessage("");
-
-				// Enviar para o servidor
-				if (socket) {
-					socket.emit("chatMessage", {
-						roomId: roomCode,
-						sender: playerName,
-						text: chatMessage,
-						messageId: messageId,
-					});
-				}
-			};
-
 			// Manipulador para mensagens recebidas
 			const handleChatMessage = (data: {
 				sender?: string;
@@ -596,7 +599,19 @@ function BattleContent() {
 				}
 			};
 		}
-	}, [socket, roomCode, playerName, isHost, characterId, characterClass, playerStats, players, gameState, currentTurn]);
+	}, [
+		socket,
+		roomCode,
+		playerName,
+		isHost,
+		characterId,
+		characterClass,
+		playerStats,
+		players,
+		gameState,
+		currentTurn,
+		messages,
+	]);
 
 	// Record battle event to history
 	const recordBattleEvent = async (event: {
@@ -1188,7 +1203,7 @@ function BattleContent() {
 				socket.off("playerLeft");
 			};
 		}
-	}, [socket, roomCode, playerName]);
+	}, [socket, roomCode, playerName, messages]);
 
 	// Corrigir o useEffect para rolagem do chat
 	useEffect(() => {
@@ -1298,7 +1313,7 @@ function BattleContent() {
 							</div>
 						</CardContent>
 						<div className="p-2 md:p-4 border-t">
-							<form onSubmit={(e) => sendMessage(e)} className="flex gap-2">
+							<form onSubmit={sendMessage} className="flex gap-2">
 								<Input
 									value={chatMessage}
 									onChange={(e) => setChatMessage(e.target.value)}
