@@ -330,12 +330,25 @@ function BattleContent() {
 
 			// Handle player joined
 			const handlePlayerJoined: PlayerJoinedHandler = (data) => {
+				// Verificar se os dados são válidos
+				if (!data || !data.player) {
+					console.error("Dados inválidos recebidos em handlePlayerJoined:", data);
+					return;
+				}
+
+				// Garantir que o jogador tenha um ID e nome
+				const player = {
+					...data.player,
+					id: data.player.id || `temp-${Date.now()}-${Math.random()}`,
+					name: data.player.name || "Jogador desconhecido",
+				};
+
 				setPlayers((prevPlayers) => {
 					// Se o jogador já existe, não adicione novamente
-					if (prevPlayers.some((p) => p.id === data.player.id)) {
+					if (prevPlayers.some((p) => p.id === player.id)) {
 						return prevPlayers;
 					}
-					return [...prevPlayers, data.player];
+					return [...prevPlayers, player];
 				});
 
 				// Se o jogador atual for o host, atualize os jogadores existentes para o novo jogador
@@ -355,7 +368,7 @@ function BattleContent() {
 					...prevMessages,
 					{
 						sender: "System",
-						content: `${data.player.name} entrou na sala.`,
+						content: `${player.name} entrou na sala.`,
 						isSystem: true,
 						timestamp: Date.now(),
 					},
@@ -794,20 +807,34 @@ function BattleContent() {
 		}
 
 		// Encontrar o próximo jogador na ordem de iniciativa
-		const sortedPlayers = [...players].sort((a, b) => b.initiative - a.initiative);
-		const currentIndex = sortedPlayers.findIndex((p) => p.name === playerName);
+		const sortedPlayers = [...players].sort((a, b) => (b?.initiative || 0) - (a?.initiative || 0));
+
+		// Verificar se há jogadores suficientes
+		if (!sortedPlayers.length) {
+			console.error("Não há jogadores suficientes para passar o turno");
+			return;
+		}
+
+		const currentIndex = sortedPlayers.findIndex((p) => p?.name === playerName);
 		const nextIndex = (currentIndex + 1) % sortedPlayers.length;
 		const nextPlayer = sortedPlayers[nextIndex];
 
+		if (!nextPlayer) {
+			console.error("Não foi possível determinar o próximo jogador");
+			return;
+		}
+
+		const nextPlayerName = nextPlayer?.name || "Desconhecido";
+
 		// Atualizar o turno atual
-		setCurrentTurn(nextPlayer.name);
+		setCurrentTurn(nextPlayerName);
 
 		// Enviar atualização para o servidor
 		if (socket) {
 			socket.emit("updateGameState", {
 				roomId: roomCode, // Corrigido: roomCode → roomId
 				gameState: "combat",
-				currentTurn: nextPlayer.name,
+				currentTurn: nextPlayerName,
 			});
 		}
 
@@ -816,7 +843,7 @@ function BattleContent() {
 			...prev,
 			{
 				sender: "System",
-				content: `Turno finalizado. Agora é a vez de ${nextPlayer.name}!`,
+				content: `Turno finalizado. Agora é a vez de ${nextPlayerName}!`,
 				isSystem: true,
 				timestamp: Date.now(),
 			},
@@ -827,7 +854,7 @@ function BattleContent() {
 			type: "turn_ended",
 			data: {
 				player: playerName,
-				nextPlayer: nextPlayer.name,
+				nextPlayer: nextPlayerName,
 			},
 		});
 	};
@@ -837,10 +864,10 @@ function BattleContent() {
 		if (!isHost) return;
 
 		// Ordenar jogadores por iniciativa
-		const sortedPlayers = [...players].sort((a, b) => b.initiative - a.initiative);
+		const sortedPlayers = [...players].sort((a, b) => (b?.initiative || 0) - (a?.initiative || 0));
 
 		// Verificar se pelo menos um jogador rolou iniciativa
-		const anyPlayerRolled = sortedPlayers.some((p) => p.initiative > 0);
+		const anyPlayerRolled = sortedPlayers.some((p) => (p?.initiative || 0) > 0);
 
 		if (!anyPlayerRolled) {
 			setMessages((prev) => [
@@ -857,14 +884,20 @@ function BattleContent() {
 
 		// Definir o primeiro jogador (o que tem a maior iniciativa)
 		const firstPlayer = sortedPlayers[0];
-		setCurrentTurn(firstPlayer.name);
+		if (!firstPlayer) {
+			console.error("Não foi possível encontrar o jogador com maior iniciativa");
+			return;
+		}
+
+		const firstPlayerName = firstPlayer?.name || "Desconhecido";
+		setCurrentTurn(firstPlayerName);
 
 		// Atualizar estado do jogo
 		if (socket) {
 			socket.emit("updateGameState", {
 				roomId: roomCode, // Corrigido: roomCode → roomId
 				gameState: "combat",
-				currentTurn: firstPlayer.name,
+				currentTurn: firstPlayerName,
 			});
 		}
 
@@ -873,7 +906,7 @@ function BattleContent() {
 			...prev,
 			{
 				sender: "System",
-				content: `O combate começa! ${firstPlayer.name} tem o primeiro turno com iniciativa ${firstPlayer.initiative}!`,
+				content: `O combate começa! ${firstPlayerName} tem o primeiro turno com iniciativa ${firstPlayer?.initiative || 0}!`,
 				isSystem: true,
 				timestamp: Date.now(),
 			},
@@ -1036,15 +1069,24 @@ function BattleContent() {
 			};
 
 			const handleHostChanged = (data: HostChangedData) => {
-				// Update host status
-				setPlayers(data.players);
+				// Verificar se os dados são válidos
+				if (!data || !data.newHost) {
+					console.error("Dados inválidos recebidos em handleHostChanged:", data);
+					return;
+				}
 
-				// Add message about host change
+				// Update host status with safe check
+				if (Array.isArray(data.players)) {
+					setPlayers(data.players.filter((player) => player !== null && player !== undefined));
+				}
+
+				// Add message about host change with safe check
+				const hostName = data.newHost?.name || "Desconhecido";
 				setMessages((prev) => [
 					...prev,
 					{
 						sender: "System",
-						content: `${data.newHost.name} é o novo host da sala`,
+						content: `${hostName} é o novo host da sala`,
 						isSystem: true,
 						timestamp: Date.now(),
 					},
@@ -1087,34 +1129,42 @@ function BattleContent() {
 
 	const formatChatPlayerList = () => {
 		const formatPlayer = (player: Player) => {
-			const isCurrentPlayer = player.name === playerName;
-			const isCurrentTurnPlayer = player.name === currentTurn;
+			// Verificar se o jogador é válido para evitar erros
+			if (!player) {
+				return null;
+			}
 
-			let nameDisplay = player.name;
+			// Garantir que o objeto player tenha uma propriedade name válida
+			const playerName = player.name || "Jogador desconhecido";
+
+			const isCurrentPlayer = playerName === searchParams?.get("name");
+			const isCurrentTurnPlayer = playerName === currentTurn;
+
+			let nameDisplay = playerName;
 			if (player.isHost) nameDisplay += " (Mestre)";
 			if (isCurrentPlayer) nameDisplay += " (Você)";
 			if (isCurrentTurnPlayer) nameDisplay += " ⭐";
 
 			return (
 				<div
-					key={player.id}
+					key={player.id || `player-${playerName}`}
 					className={`flex items-center justify-between p-2 ${
 						isCurrentTurnPlayer ? "bg-amber-100 dark:bg-amber-950" : ""
 					}`}
 				>
 					<div className="flex items-center">
 						<div className="w-8 h-8 mr-2 bg-purple-200 rounded-full flex items-center justify-center">
-							{player.name.charAt(0).toUpperCase()}
+							{playerName.charAt(0).toUpperCase()}
 						</div>
 						<span>{nameDisplay}</span>
 					</div>
 					{gameState === "combat" && (
 						<div className="text-xs">
 							<div className="text-red-500">
-								HP: {player.currentHP}/{player.maxHP}
+								HP: {player.currentHP || 0}/{player.maxHP || 100}
 							</div>
 							<div className="text-blue-500">
-								MP: {player.currentMP}/{player.maxMP}
+								MP: {player.currentMP || 0}/{player.maxMP || 100}
 							</div>
 						</div>
 					)}
@@ -1122,7 +1172,11 @@ function BattleContent() {
 			);
 		};
 
-		return <div className="space-y-1">{players.map((player) => formatPlayer(player))}</div>;
+		return (
+			<div className="space-y-1">
+				{players.filter((player) => player !== null && player !== undefined).map((player) => formatPlayer(player))}
+			</div>
+		);
 	};
 
 	// Return view
@@ -1156,14 +1210,16 @@ function BattleContent() {
 									messages.map((msg) => (
 										<div key={msg.timestamp} className="flex space-x-2">
 											<div className="bg-primary/10 rounded-full w-8 h-8 flex items-center justify-center shrink-0">
-												{msg.sender[0].toUpperCase()}
+												{msg.sender?.[0]?.toUpperCase() || "?"}
 											</div>
 											<div>
 												<div className="flex items-center gap-2">
-													<span className="font-medium">{msg.sender}</span>
-													<span className="text-xs text-muted-foreground">{formatTime(new Date(msg.timestamp))}</span>
+													<span className="font-medium">{msg.sender || "Sistema"}</span>
+													<span className="text-xs text-muted-foreground">
+														{formatTime(new Date(msg.timestamp || Date.now()))}
+													</span>
 												</div>
-												<p className="break-words">{msg.content}</p>
+												<p className="break-words">{msg.content || ""}</p>
 											</div>
 										</div>
 									))
@@ -1360,27 +1416,27 @@ function BattleContent() {
 								<div className="space-y-2">
 									{players.map((player, index) => (
 										<div
-											key={player.id || player.name || index}
+											key={player?.id || player?.name || index}
 											className={`flex justify-between items-center p-2 rounded ${
-												currentTurn === player.name ? "bg-primary/10" : ""
+												currentTurn === player?.name ? "bg-primary/10" : ""
 											}`}
 										>
 											<div className="flex items-center gap-2">
 												<div className="bg-primary/10 rounded-full w-8 h-8 flex items-center justify-center">
-													{player.name[0].toUpperCase()}
+													{player?.name?.[0]?.toUpperCase() || "?"}
 												</div>
 												<div>
-													<span className="font-medium">{player.name}</span>
-													{player.characterClass && (
-														<span className="ml-2 text-xs bg-secondary/20 px-1 rounded">{player.characterClass}</span>
+													<span className="font-medium">{player?.name || "Jogador desconhecido"}</span>
+													{player?.characterClass && (
+														<span className="ml-2 text-xs bg-secondary/20 px-1 rounded">{player?.characterClass}</span>
 													)}
-													{player.isHost && <span className="ml-1 text-xs bg-amber-500/20 px-1 rounded">Host</span>}
+													{player?.isHost && <span className="ml-1 text-xs bg-amber-500/20 px-1 rounded">Host</span>}
 												</div>
 											</div>
 											{gameState !== "waiting" && (
 												<div className="text-sm">
-													{player.initiative > 0 ? (
-														<span className="text-primary">Ini: {player.initiative}</span>
+													{player?.initiative > 0 ? (
+														<span className="text-primary">Ini: {player?.initiative}</span>
 													) : (
 														<span className="text-muted-foreground">Aguardando...</span>
 													)}
