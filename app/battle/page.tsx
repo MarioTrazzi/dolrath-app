@@ -238,6 +238,72 @@ function BattleContent() {
 		if (socket) {
 			console.log("Tentando entrar na sala:", roomCode);
 
+			// Handlers de debug em ambiente de desenvolvimento
+			if (process.env.NODE_ENV !== "production") {
+				socket.onAny((event, ...args) => {
+					console.log(`[DEBUG] Socket event: ${event}`, args);
+				});
+			}
+
+			// Handler para evento connect
+			socket.on("connect", () => {
+				console.log("Conectado ao servidor socket.io com ID:", socket.id);
+
+				setMessages((prev) => [
+					...prev,
+					{
+						sender: "System",
+						content: `Conectado ao servidor (ID: ${socket.id})`,
+						isSystem: true,
+						timestamp: Date.now(),
+					},
+				]);
+			});
+
+			// Adicionar handlers para monitorar problemas de conexão
+			socket.on("connect_error", (error) => {
+				console.error("Erro de conexão:", error.message);
+				setMessages((prev) => [
+					...prev,
+					{
+						sender: "System",
+						content: `Erro de conexão: ${error.message}`,
+						isSystem: true,
+						timestamp: Date.now(),
+					},
+				]);
+			});
+
+			socket.on("disconnect", (reason) => {
+				console.log("Desconectado do servidor. Motivo:", reason);
+				setMessages((prev) => [
+					...prev,
+					{
+						sender: "System",
+						content: `Desconectado do servidor: ${reason}`,
+						isSystem: true,
+						timestamp: Date.now(),
+					},
+				]);
+			});
+
+			socket.io.on("reconnect_attempt", (attempt) => {
+				console.log(`Tentativa de reconexão #${attempt}`);
+			});
+
+			socket.io.on("reconnect", (attempt) => {
+				console.log(`Reconectado após ${attempt} tentativas`);
+				setMessages((prev) => [
+					...prev,
+					{
+						sender: "System",
+						content: `Reconectado ao servidor após ${attempt} tentativas`,
+						isSystem: true,
+						timestamp: Date.now(),
+					},
+				]);
+			});
+
 			// Modificado: alterando de roomCode para roomId para compatibilidade com o servidor
 			socket.emit("joinRoom", {
 				roomId: roomCode, // Alterado de roomCode para roomId
@@ -297,7 +363,7 @@ function BattleContent() {
 			};
 
 			// Handle chat message
-			const handleChatMessage = (data: any) => {
+			const handleChatMessage = (data: { sender: string; text: string; time: string }) => {
 				// O servidor envia { sender, text, time } em vez de { sender, content, isSystem, timestamp }
 				setMessages((prevMessages) => [
 					...prevMessages,
@@ -413,25 +479,25 @@ function BattleContent() {
 			socket.on("messageReceived", handleChatMessage);
 			socket.on("playerLeft", handlePlayerLeft);
 
-			// Cleanup function to remove event listeners
+			// No cleanup, adicionar a remoção de todos os eventos
 			return () => {
-				// Comentado: estes eventos não correspondem aos que o servidor emite
-				// socket.off("player_joined");
-				// socket.off("chat_message");
-				// socket.off("game_state");
-				// socket.off("player_left");
-				// socket.off("roll_result");
-				// socket.off("action_result");
-				// socket.off("player_stats_update");
-
 				// Eventos corretos para remover
 				socket.off("playerJoined");
 				socket.off("messageReceived");
 				socket.off("playerLeft");
 				socket.off("error");
+				socket.off("connect");
+				socket.off("connect_error");
+				socket.off("disconnect");
+
+				// Se o socket.io existir, remover eventos dele também
+				if (socket.io) {
+					socket.io.off("reconnect_attempt");
+					socket.io.off("reconnect");
+				}
 			};
 		}
-	}, [socket, roomCode, playerName, isHost, players, gameState, currentTurn, playerStats, characterId, characterClass]);
+	}, [socket, roomCode, playerName, isHost, characterId, characterClass, playerStats, players, gameState, currentTurn]);
 
 	// Record battle event to history
 	const recordBattleEvent = async (event: {
@@ -1058,29 +1124,6 @@ function BattleContent() {
 
 		return <div className="space-y-1">{players.map((player) => formatPlayer(player))}</div>;
 	};
-
-	// Adicionar handler para debug em desenvolvimento
-	if (process.env.NODE_ENV !== "production") {
-		socket.onAny((event, ...args) => {
-			console.log(`[DEBUG] Socket event: ${event}`, args);
-		});
-	}
-
-	// Adicionar também um handler específico para o evento "connect" para mostrar o socket.id
-	socket.on("connect", () => {
-		console.log("Conectado ao servidor socket.io com ID:", socket.id);
-
-		// Adicionar mensagem de sistema
-		setMessages((prev) => [
-			...prev,
-			{
-				sender: "System",
-				content: `Conectado ao servidor (ID: ${socket.id})`,
-				isSystem: true,
-				timestamp: Date.now(),
-			},
-		]);
-	});
 
 	// Return view
 	return (
