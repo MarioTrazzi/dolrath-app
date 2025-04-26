@@ -33,13 +33,16 @@ export const SocketProvider = ({ children }: { children: ReactNode }) => {
 					// Verificar se estamos em ambiente de produção (Vercel) ou desenvolvimento
 					const isProduction =
 						typeof window !== "undefined" &&
-						(window.location.hostname.includes("vercel.app") || window.location.hostname.includes("dolrath-app"));
+						window.location.hostname !== "localhost" &&
+						window.location.hostname !== "127.0.0.1";
 
 					// Usar a URL de produção ou localhost baseado no ambiente
 					socketUrl = isProduction ? "https://dolrath-app.onrender.com" : "http://localhost:3001";
+
+					console.log(`Ambiente detectado: ${isProduction ? "Produção" : "Desenvolvimento"}`);
+					console.log(`Hostname: ${typeof window !== "undefined" ? window.location.hostname : "SSR"}`);
 				}
 
-				console.log("Ambiente detectado:", typeof window !== "undefined" ? window.location.hostname : "SSR");
 				console.log("Tentando conectar ao servidor socket:", socketUrl);
 
 				const io = (await import("socket.io-client")).default;
