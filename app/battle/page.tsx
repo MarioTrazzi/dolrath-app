@@ -236,13 +236,30 @@ function BattleContent() {
 		hasJoinedRef.current = true;
 
 		if (socket) {
+			console.log("Tentando entrar na sala:", roomCode);
+
+			// Modificado: alterando de roomCode para roomId para compatibilidade com o servidor
 			socket.emit("joinRoom", {
-				roomCode,
+				roomId: roomCode, // Alterado de roomCode para roomId
 				playerName,
 				isHost,
 				characterId,
 				characterClass,
 				playerStats,
+			});
+
+			// Adicionar listener para erros do servidor
+			socket.on("error", (error) => {
+				console.error("Erro no servidor:", error);
+				setMessages((prevMessages) => [
+					...prevMessages,
+					{
+						sender: "System",
+						content: `Erro: ${error.message || "Falha ao conectar à sala"}`,
+						isSystem: true,
+						timestamp: Date.now(),
+					},
+				]);
 			});
 
 			// Handle player joined
@@ -259,7 +276,7 @@ function BattleContent() {
 				if (isHost) {
 					setTimeout(() => {
 						socket.emit("updatePlayersToNewJoiner", {
-							roomCode,
+							roomId: roomCode, // Corrigido: roomCode → roomId
 							players,
 							gameState,
 							currentTurn,
@@ -280,8 +297,17 @@ function BattleContent() {
 			};
 
 			// Handle chat message
-			const handleChatMessage: ChatMessageHandler = (data) => {
-				setMessages((prevMessages) => [...prevMessages, data]);
+			const handleChatMessage = (data: any) => {
+				// O servidor envia { sender, text, time } em vez de { sender, content, isSystem, timestamp }
+				setMessages((prevMessages) => [
+					...prevMessages,
+					{
+						sender: data.sender,
+						content: data.text || "", // o servidor usa 'text' em vez de 'content'
+						isSystem: false,
+						timestamp: Date.now(),
+					},
+				]);
 			};
 
 			// Handle game state update
@@ -382,24 +408,27 @@ function BattleContent() {
 				}
 			};
 
-			// Registrar os event listeners com os tipos corretos
-			socket.on("player_joined", handlePlayerJoined);
-			socket.on("chat_message", handleChatMessage);
-			socket.on("game_state", handleGameState);
-			socket.on("player_left", handlePlayerLeft);
-			socket.on("roll_result", handleRollResult);
-			socket.on("action_result", handleActionResult);
-			socket.on("player_stats_update", handlePlayerStatsUpdate);
+			// Adicionando os event listeners corretos que correspondem aos eventos do servidor
+			socket.on("playerJoined", handlePlayerJoined);
+			socket.on("messageReceived", handleChatMessage);
+			socket.on("playerLeft", handlePlayerLeft);
 
 			// Cleanup function to remove event listeners
 			return () => {
-				socket.off("player_joined");
-				socket.off("chat_message");
-				socket.off("game_state");
-				socket.off("player_left");
-				socket.off("roll_result");
-				socket.off("action_result");
-				socket.off("player_stats_update");
+				// Comentado: estes eventos não correspondem aos que o servidor emite
+				// socket.off("player_joined");
+				// socket.off("chat_message");
+				// socket.off("game_state");
+				// socket.off("player_left");
+				// socket.off("roll_result");
+				// socket.off("action_result");
+				// socket.off("player_stats_update");
+
+				// Eventos corretos para remover
+				socket.off("playerJoined");
+				socket.off("messageReceived");
+				socket.off("playerLeft");
+				socket.off("error");
 			};
 		}
 	}, [socket, roomCode, playerName, isHost, players, gameState, currentTurn, playerStats, characterId, characterClass]);
@@ -449,8 +478,9 @@ function BattleContent() {
 
 		// Send to server
 		if (socket) {
+			console.log("Enviando mensagem para sala:", roomCode);
 			socket.emit("chatMessage", {
-				roomId: roomCode,
+				roomId: roomCode, // Alterado de roomCode para roomId
 				message: {
 					sender: playerName,
 					text: chatMessage,
@@ -500,7 +530,7 @@ function BattleContent() {
 		// Informar ao servidor
 		if (socket) {
 			socket.emit("startGame", {
-				roomId: roomCode,
+				roomId: roomCode, // Corrigido: roomCode → roomId
 				initialGameState: "rolling_initiative",
 			});
 		}
@@ -540,7 +570,7 @@ function BattleContent() {
 		// Enviar resultado para o servidor
 		if (socket) {
 			socket.emit("rollDice", {
-				roomId: roomCode,
+				roomId: roomCode, // Corrigido: roomCode → roomId
 				playerName,
 				faces: 20,
 				result,
@@ -562,7 +592,7 @@ function BattleContent() {
 		// Informar o servidor sobre a iniciativa
 		if (socket) {
 			socket.emit("updateGameState", {
-				roomId: roomCode,
+				roomId: roomCode, // Corrigido: roomCode → roomId
 				gameState: "rolling_initiative",
 				playerInitiative: {
 					name: playerName,
@@ -598,7 +628,7 @@ function BattleContent() {
 		// Enviar ação para o servidor
 		if (socket) {
 			socket.emit("performAction", {
-				roomId: roomCode,
+				roomId: roomCode, // Corrigido: roomCode → roomId
 				playerName,
 				actionType: "attack",
 				currentTurn,
@@ -657,7 +687,7 @@ function BattleContent() {
 			// Enviar ação para o servidor
 			if (socket) {
 				socket.emit("performAction", {
-					roomId: roomCode,
+					roomId: roomCode, // Corrigido: roomCode → roomId
 					playerName,
 					actionType: "use_item",
 					currentTurn,
@@ -709,7 +739,7 @@ function BattleContent() {
 		// Enviar atualização para o servidor
 		if (socket) {
 			socket.emit("updateGameState", {
-				roomId: roomCode,
+				roomId: roomCode, // Corrigido: roomCode → roomId
 				gameState: "combat",
 				currentTurn: nextPlayer.name,
 			});
@@ -766,7 +796,7 @@ function BattleContent() {
 		// Atualizar estado do jogo
 		if (socket) {
 			socket.emit("updateGameState", {
-				roomId: roomCode,
+				roomId: roomCode, // Corrigido: roomCode → roomId
 				gameState: "combat",
 				currentTurn: firstPlayer.name,
 			});
@@ -975,6 +1005,9 @@ function BattleContent() {
 				socket.off("defenseChosen");
 				socket.off("combatResolved");
 				socket.off("hostChanged");
+				socket.off("error");
+				socket.off("playerJoined");
+				socket.off("playerLeft");
 			};
 		}
 	}, [socket, roomCode, playerName]);
@@ -1025,6 +1058,29 @@ function BattleContent() {
 
 		return <div className="space-y-1">{players.map((player) => formatPlayer(player))}</div>;
 	};
+
+	// Adicionar handler para debug em desenvolvimento
+	if (process.env.NODE_ENV !== "production") {
+		socket.onAny((event, ...args) => {
+			console.log(`[DEBUG] Socket event: ${event}`, args);
+		});
+	}
+
+	// Adicionar também um handler específico para o evento "connect" para mostrar o socket.id
+	socket.on("connect", () => {
+		console.log("Conectado ao servidor socket.io com ID:", socket.id);
+
+		// Adicionar mensagem de sistema
+		setMessages((prev) => [
+			...prev,
+			{
+				sender: "System",
+				content: `Conectado ao servidor (ID: ${socket.id})`,
+				isSystem: true,
+				timestamp: Date.now(),
+			},
+		]);
+	});
 
 	// Return view
 	return (
@@ -1221,7 +1277,7 @@ function BattleContent() {
 														const handleItemUse = (name: string) => {
 															if (socket) {
 																socket.emit("useItem", {
-																	roomCode,
+																	roomId: roomCode,
 																	player: playerName,
 																	itemName: name,
 																});
