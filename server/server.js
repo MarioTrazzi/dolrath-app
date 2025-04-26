@@ -6,7 +6,9 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 // Configuração de CORS
-const CORS_ORIGINS = process.env.CORS_ORIGINS ? process.env.CORS_ORIGINS.split(",") : "*";
+const CORS_ORIGINS = process.env.CORS_ORIGINS
+	? process.env.CORS_ORIGINS.split(",")
+	: ["http://localhost:3000", "http://localhost:3001", "https://dolrath-app.vercel.app"];
 console.log(`CORS configured for origins: ${CORS_ORIGINS}`);
 
 const app = express();
@@ -114,10 +116,53 @@ app.get("/api/rooms/:roomId", (req, res) => {
 	}
 });
 
+// API endpoint to list all available rooms
+app.get("/api/rooms", (req, res) => {
+	console.log("Listando salas disponíveis");
+
+	// Convert activeRooms object to array and filter as needed
+	const roomsList = Object.values(activeRooms)
+		.filter((room) => room.isPublic !== false) // Only include public rooms
+		.map((room) => ({
+			id: room.id,
+			created: room.created,
+			players: room.players ? room.players.length : 0,
+			maxPlayers: room.maxPlayers || 8,
+			hasPassword: !!room.password,
+			isPublic: room.isPublic !== false,
+			gameState: room.gameState || "waiting",
+		}));
+
+	res.json({ rooms: roomsList });
+});
+
+// API endpoint to verify room password
+app.post("/api/rooms/:roomId/verify-password", (req, res) => {
+	const roomId = req.params.roomId.toUpperCase();
+	const { password } = req.body;
+
+	console.log(`Verificando senha para sala: ${roomId}`);
+
+	if (!activeRooms[roomId]) {
+		return res.status(404).json({ success: false, error: "Sala não encontrada" });
+	}
+
+	// If room has no password, or passwords match
+	if (!activeRooms[roomId].password || activeRooms[roomId].password === password) {
+		return res.json({ success: true });
+	}
+
+	// Password doesn't match
+	return res.json({ success: false, error: "Senha incorreta" });
+});
+
 // API endpoint to create a new room
 app.post("/api/rooms", (req, res) => {
 	const characterId = req.body?.characterId;
 	let customRoomId = req.body?.customRoomId;
+	const isPublic = req.body?.isPublic !== false; // Default to public if not specified
+	const password = req.body?.password || null;
+	const maxPlayers = req.body?.maxPlayers || 8;
 
 	// Normalizar o ID da sala para maiúsculas
 	if (customRoomId) {
@@ -146,6 +191,9 @@ app.post("/api/rooms", (req, res) => {
 		gameState: "waiting",
 		started: false,
 		battleHistory: [],
+		isPublic,
+		password,
+		maxPlayers,
 	};
 
 	// Add to persistent storage
@@ -154,6 +202,9 @@ app.post("/api/rooms", (req, res) => {
 		id: roomId,
 		created: timestamp,
 		creatorCharacterId: characterId,
+		isPublic,
+		hasPassword: !!password,
+		maxPlayers,
 	});
 	saveRooms(roomsData);
 

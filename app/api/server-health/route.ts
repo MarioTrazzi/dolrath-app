@@ -44,7 +44,6 @@ export async function GET() {
 		console.error("Erro ao verificar o status do servidor:", error);
 
 		// Tente acessar por HTTP, mesmo que a URL seja HTTPS
-		let alternateUrl = null;
 		let alternateError = null;
 
 		if (socketUrl.startsWith("https://")) {

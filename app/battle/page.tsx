@@ -84,6 +84,7 @@ interface PlayerStatsUpdateData {
 interface GameStartedData {
 	gameState: {
 		state: string;
+		currentTurn?: string;
 	};
 }
 
@@ -97,7 +98,7 @@ interface MessageReceivedData {
 
 // Interface para atualização do estado do jogo
 interface GameStateUpdatedData {
-	state: string;
+	gameState: string;
 	currentTurn: string;
 	playerInitiative?: {
 		name: string;
@@ -108,16 +109,51 @@ interface GameStateUpdatedData {
 // Interface para ações realizadas
 interface ActionPerformedData {
 	player: string;
+	playerName: string;
 	action: string;
 	target?: string;
 	result: string;
+	message?: string;
 	gameState?: {
 		state: string;
-		currentTurn: string;
+		currentTurn?: string;
 	};
 	actionType?: string;
 	targetPlayer?: string;
 	currentTurn?: string;
+	attackRoll?: number;
+}
+
+// Add missing interfaces for event handlers
+interface DiceRolledData {
+	playerName: string;
+	result: number;
+	faces: number;
+	sides?: number;
+	modifier?: number;
+	total?: number;
+	description?: string;
+}
+
+interface DefenseChosenData {
+	defenderName: string;
+	defenseType: string;
+	gameState?: string;
+	message?: string;
+}
+
+interface CombatResolvedData {
+	player1: Player;
+	player2: Player;
+	gameState?: string;
+	currentTurn?: string;
+	attackRoll?: number;
+	defenseRoll?: number;
+}
+
+interface HostChangedData {
+	newHost: Player;
+	players: Player[];
 }
 
 // Definir tipos para event handlers e parâmetros de eventos específicos
@@ -134,6 +170,8 @@ export default function BattlePage() {
 	const searchParams = useSearchParams();
 
 	const { socket, isConnected } = useSocket();
+
+	const [isHost, setIsHost] = useState(false);
 
 	useEffect(() => {
 		// If there are room parameters, keep them and allow access to the battle
@@ -170,6 +208,7 @@ function BattleContent() {
 	const [gameState, setGameState] = useState("waiting");
 	const [currentTurn, setCurrentTurn] = useState("");
 	const [battleStarted, setBattleStarted] = useState(false);
+	const [battleEnded, setBattleEnded] = useState(false);
 	const [players, setPlayers] = useState<Player[]>([]);
 	const [selectedAction, setSelectedAction] = useState("");
 	const [selectedTarget, setSelectedTarget] = useState("");
@@ -747,115 +786,198 @@ function BattleContent() {
 
 	// Adicionar event listeners para eventos de batalha
 	useEffect(() => {
-		if (!socket) return;
+		if (socket && roomCode && playerName) {
+			// Ouvir início de jogo
+			const handleGameStarted = (initialGameState: GameStartedData) => {
+				setGameState(initialGameState.gameState.state);
+				setBattleStarted(true);
+				setBattleEnded(false);
 
-		// Ouvir início de jogo
-		const handleGameStarted = (initialGameState: GameStartedData) => {
-			setBattleStarted(true);
-			setGameState(initialGameState.gameState.state);
+				// Only set currentTurn if it exists
+				if (initialGameState.gameState.currentTurn) {
+					setCurrentTurn(initialGameState.gameState.currentTurn);
+				}
 
-			setMessages((prev) => [
-				...prev,
-				{
-					sender: "System",
-					content: "A batalha começou! Todos os jogadores devem rolar iniciativa.",
-					isSystem: true,
-					timestamp: Date.now(),
-				},
-			]);
-		};
-
-		// Ouvir mensagens de chat de outros jogadores
-		const handleMessageReceived = (data: MessageReceivedData) => {
-			console.log("Mensagem recebida:", data);
-
-			// Ignorar mensagens enviadas pelo próprio usuário para evitar duplicação
-			if (data.sender !== playerName) {
 				setMessages((prev) => [
 					...prev,
 					{
-						sender: data.sender,
-						content: data.content,
-						isSystem: data.isSystem,
-						timestamp: data.timestamp,
+						sender: "System",
+						content: "A batalha começou!",
+						isSystem: true,
+						timestamp: Date.now(),
 					},
 				]);
-			}
-		};
+			};
 
-		// Ouvir atualizações de estado do jogo
-		const handleGameStateUpdated = (data: GameStateUpdatedData) => {
-			setGameState(data.state);
-			setCurrentTurn(data.currentTurn);
+			// Ouvir mensagens de chat de outros jogadores
+			const handleMessageReceived = (data: MessageReceivedData) => {
+				// Ignore messages sent by the user to prevent duplication
+				if (data.sender !== playerName) {
+					setMessages((prev) => [
+						...prev,
+						{
+							sender: data.sender,
+							content: data.content,
+							isSystem: data.isSystem,
+							timestamp: data.timestamp,
+						},
+					]);
+				}
+			};
 
-			// Se temos uma atualização de iniciativa de jogador
-			if (data.playerInitiative) {
-				// Atualizar o jogador na lista de jogadores
-				setPlayers((prev) =>
-					prev.map((p) =>
-						p.name === data.playerInitiative?.name ? { ...p, initiative: data.playerInitiative.initiative } : p,
-					),
-				);
-			}
+			// Ouvir atualizações de estado do jogo
+			const handleGameStateUpdated = (data: GameStateUpdatedData) => {
+				setGameState(data.gameState);
+				if (data.playerInitiative) {
+					setPlayers((prevPlayers) =>
+						prevPlayers.map((player) =>
+							player.name === data.playerInitiative?.name
+								? { ...player, initiative: data.playerInitiative.initiative }
+								: player,
+						),
+					);
+				}
 
-			// Se o estado do jogo é combate, atualizar a flag de batalha iniciada
-			if (data.state === "combat") {
-				setBattleStarted(true);
-			}
-		};
+				if (data.currentTurn) {
+					setCurrentTurn(data.currentTurn);
+				}
+			};
 
-		// Ouvir ações de outros jogadores
-		const handleActionPerformed = (data: ActionPerformedData) => {
-			// Adicionar mensagem sobre a ação
-			setMessages((prev) => [
-				...prev,
-				{
-					sender: "System",
-					content: data.result,
-					isSystem: true,
-					timestamp: Date.now(),
-				},
-			]);
+			// Ouvir ações de outros jogadores
+			const handleActionPerformed = (data: ActionPerformedData) => {
+				// Update game state
+				if (data.gameState) {
+					setGameState(data.gameState.state);
+					if (data.gameState.currentTurn) {
+						setCurrentTurn(data.gameState.currentTurn);
+					}
+				}
 
-			// Atualizar o estado do jogo
-			if (data.gameState) {
-				setGameState(data.gameState.state);
-				setCurrentTurn(data.gameState.currentTurn);
-			} else if (data.currentTurn) {
-				setCurrentTurn(data.currentTurn);
-			}
+				// Add message to chat
+				if (data.message) {
+					setMessages((prev) => [
+						...prev,
+						{
+							sender: "System",
+							content: data.message || "", // Provide empty string as fallback
+							isSystem: true,
+							timestamp: Date.now(),
+						},
+					]);
+				}
 
-			// Se for uma ação de ataque contra este jogador, tratar o ataque
-			if (data.actionType === "attack" && data.targetPlayer === playerName) {
-				// Lógica para receber dano
-				// Será implementada depois
-			}
-		};
+				// Check if it's an attack and add specific message
+				if (data.actionType === "attack" && data.targetPlayer) {
+					const message = `${data.playerName} atacou ${data.targetPlayer} com ${data.attackRoll || 0}`;
+					setMessages((prev) => [
+						...prev,
+						{
+							sender: "System",
+							content: message,
+							isSystem: true,
+							timestamp: Date.now(),
+						},
+					]);
+				}
+			};
 
-		socket.on("gameStarted", (initialGameState: GameStartedData) => {
-			handleGameStarted(initialGameState);
-		});
+			const handleDiceRolled = (data: DiceRolledData) => {
+				// Add dice roll message
+				setMessages((prev) => [
+					...prev,
+					{
+						sender: "System",
+						content: `${data.playerName} rolou ${data.result} no dado de ${data.faces} faces`,
+						isSystem: true,
+						timestamp: Date.now(),
+					},
+				]);
+			};
 
-		socket.on("messageReceived", (data: MessageReceivedData) => {
-			handleMessageReceived(data);
-		});
+			const handleDefenseChosen = (data: DefenseChosenData) => {
+				// Add defense chosen message
+				setMessages((prev) => [
+					...prev,
+					{
+						sender: "System",
+						content: `${data.defenderName} escolheu ${data.defenseType} como defesa`,
+						isSystem: true,
+						timestamp: Date.now(),
+					},
+				]);
 
-		socket.on("gameStateUpdated", (data: GameStateUpdatedData) => {
-			handleGameStateUpdated(data);
-		});
+				// Update game state if provided
+				if (data.gameState) {
+					setGameState(data.gameState);
+				}
+			};
 
-		socket.on("actionPerformed", (data: ActionPerformedData) => {
-			handleActionPerformed(data);
-		});
+			const handleCombatResolved = (data: CombatResolvedData) => {
+				// Update players state with combat results
+				if (data.player1 && data.player2) {
+					setPlayers((prevPlayers) =>
+						prevPlayers.map((player) => {
+							if (player.name === data.player1.name) {
+								return { ...player, currentHP: data.player1.currentHP, currentMP: data.player1.currentMP };
+							}
+							if (player.name === data.player2.name) {
+								return { ...player, currentHP: data.player2.currentHP, currentMP: data.player2.currentMP };
+							}
+							return player;
+						}),
+					);
+				}
 
-		return () => {
-			socket.off("gameStarted");
-			socket.off("messageReceived");
-			socket.off("gameStateUpdated");
-			socket.off("actionPerformed");
-		};
-		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [socket, playerName]);
+				// Update game state
+				if (data.gameState) {
+					setGameState(data.gameState);
+				}
+
+				// Update current turn
+				if (data.currentTurn) {
+					setCurrentTurn(data.currentTurn);
+				}
+			};
+
+			const handleHostChanged = (data: HostChangedData) => {
+				// Update host status
+				setPlayers(data.players);
+
+				// Add message about host change
+				setMessages((prev) => [
+					...prev,
+					{
+						sender: "System",
+						content: `${data.newHost.name} é o novo host da sala`,
+						isSystem: true,
+						timestamp: Date.now(),
+					},
+				]);
+			};
+
+			// Register event listeners
+			socket.on("gameStarted", handleGameStarted);
+			socket.on("messageReceived", handleMessageReceived);
+			socket.on("gameStateUpdated", handleGameStateUpdated);
+			socket.on("actionPerformed", handleActionPerformed);
+			socket.on("diceRolled", handleDiceRolled);
+			socket.on("defenseChosen", handleDefenseChosen);
+			socket.on("combatResolved", handleCombatResolved);
+			socket.on("hostChanged", handleHostChanged);
+
+			// Cleanup function to remove event listeners
+			return () => {
+				socket.off("gameStarted");
+				socket.off("messageReceived");
+				socket.off("gameStateUpdated");
+				socket.off("actionPerformed");
+				socket.off("diceRolled");
+				socket.off("defenseChosen");
+				socket.off("combatResolved");
+				socket.off("hostChanged");
+			};
+		}
+	}, [socket, roomCode, playerName]);
 
 	// Corrigir o useEffect para rolagem do chat
 	useEffect(() => {
