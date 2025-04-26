@@ -8,14 +8,11 @@ import { Providers } from "./providers";
 import { cn } from "@/lib/utils";
 import dynamic from "next/dynamic";
 
-// Carregar o componente de status de conexão apenas no cliente com SSR desabilitado
-const ConnectionStatus = dynamic(() => import("@/app/components/ConnectionStatus"), { ssr: false });
-
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-	title: "Dolrath NFT - Jogo de Batalha de Cartas",
-	description: "Jogue, batalhe e colete personagens únicos no mundo de Dolrath",
+	title: "Dolrath RPG",
+	description: "Uma plataforma digital para jogadores e mestres de RPG.",
 };
 
 export default async function RootLayout({
@@ -34,7 +31,6 @@ export default async function RootLayout({
 								<Navbar />
 							</header>
 							<main className="flex-1 bg-background">{children}</main>
-							<ConnectionStatus />
 						</div>
 					</SessionProvider>
 				</Providers>

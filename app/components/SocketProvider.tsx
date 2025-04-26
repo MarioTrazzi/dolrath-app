@@ -25,37 +25,63 @@ export const SocketProvider = ({ children }: { children: ReactNode }) => {
 	useEffect(() => {
 		const initSocket = async () => {
 			try {
+				const socketUrl = process.env.NEXT_PUBLIC_SOCKET_URL || "http://localhost:3001";
+				console.log("Tentando conectar ao servidor socket:", socketUrl);
+
 				const io = (await import("socket.io-client")).default;
 
-				const newSocket = io(process.env.NEXT_PUBLIC_SOCKET_URL || "http://localhost:3001", {
+				// Ajustar protocolo automaticamente baseado em HTTPS
+				let socketUrlWithProtocol = socketUrl;
+				if (typeof window !== "undefined") {
+					// Se estamos no navegador e a página está em HTTPS, garante que o socket usa SSL
+					if (window.location.protocol === "https:" && socketUrlWithProtocol.startsWith("http:")) {
+						socketUrlWithProtocol = socketUrlWithProtocol.replace("http:", "https:");
+						console.log("Protocolo ajustado para HTTPS:", socketUrlWithProtocol);
+					}
+				}
+
+				const newSocket = io(socketUrlWithProtocol, {
 					transports: ["websocket", "polling"],
 					reconnection: true,
 					reconnectionAttempts: 5,
 					reconnectionDelay: 1000,
 					timeout: 20000,
+					forceNew: true, // Forçar uma nova conexão
 				});
 
 				newSocket.on("connect", () => {
-					console.log("Socket connected using:", newSocket.io.engine.transport.name);
+					console.log("Socket conectado com sucesso usando:", newSocket.io.engine.transport.name);
+					console.log("Socket ID:", newSocket.id);
 					setIsConnected(true);
 				});
 
 				newSocket.on("connect_error", (err) => {
-					console.error("Connection error:", err);
+					console.error("Erro na conexão socket:", err.message);
+					console.error("Detalhes completos:", err);
+					setIsConnected(false);
 				});
 
 				newSocket.on("disconnect", (reason) => {
-					console.log("Socket disconnected:", reason);
+					console.log("Socket desconectado. Razão:", reason);
 					setIsConnected(false);
+				});
+
+				newSocket.io.on("reconnect_attempt", (attempt) => {
+					console.log(`Tentativa de reconexão #${attempt}`);
+				});
+
+				newSocket.io.on("reconnect", (attempt) => {
+					console.log(`Reconectado após ${attempt} tentativas`);
 				});
 
 				setSocket(newSocket);
 
 				return () => {
+					console.log("Limpando conexão socket...");
 					newSocket.disconnect();
 				};
 			} catch (error) {
-				console.error("Failed to connect socket:", error);
+				console.error("Falha ao conectar socket:", error);
 			}
 		};
 

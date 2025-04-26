@@ -11,6 +11,10 @@ import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import Image from "next/image";
 import Link from "next/link";
+import dynamic from "next/dynamic";
+
+// Carregamento dinâmico do componente ConnectionStatus apenas no cliente
+const ConnectionStatus = dynamic(() => import("@/app/components/ConnectionStatus"), { ssr: false });
 
 // Interface para tipagem de Player do Prisma
 interface Player {
@@ -61,6 +65,34 @@ export default function CreateRoomPage() {
 		fetchPlayers();
 	}, []);
 
+	// Adicionar um useEffect para logar a URL do servidor
+	useEffect(() => {
+		const socketUrl = process.env.NEXT_PUBLIC_SOCKET_URL || "http://localhost:3001";
+		console.log("Usando URL do servidor:", socketUrl);
+
+		// Testar conexão com o servidor imediatamente
+		const testServerConnection = async () => {
+			try {
+				console.log("Testando conexão com o servidor...");
+				const response = await fetch(`${socketUrl}/api/health`, {
+					cache: "no-store",
+					headers: { pragma: "no-cache" },
+				});
+
+				if (response.ok) {
+					const data = await response.json();
+					console.log("Servidor online:", data);
+				} else {
+					console.error("Servidor respondeu com erro:", response.status);
+				}
+			} catch (error) {
+				console.error("Erro ao testar conexão com o servidor:", error);
+			}
+		};
+
+		testServerConnection();
+	}, []);
+
 	// Função para criar uma nova sala
 	const createRoom = async () => {
 		if (!characterId) {
@@ -84,7 +116,12 @@ export default function CreateRoomPage() {
 			// Usar nome do personagem se playerName estiver vazio
 			const displayName = playerName.trim() || selectedPlayer.name;
 
-			const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001"}/api/rooms`, {
+			// Usar a mesma variável de ambiente que o socket usa
+			const socketUrl = process.env.NEXT_PUBLIC_SOCKET_URL || "http://localhost:3001";
+
+			console.log("Tentando criar sala em:", `${socketUrl}/api/rooms`);
+
+			const response = await fetch(`${socketUrl}/api/rooms`, {
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
@@ -95,7 +132,9 @@ export default function CreateRoomPage() {
 				}),
 			});
 
+			console.log("Status da resposta:", response.status);
 			const data = await response.json();
+			console.log("Dados recebidos:", data);
 
 			if (data.roomId) {
 				const queryParams = new URLSearchParams({
@@ -154,9 +193,10 @@ export default function CreateRoomPage() {
 			// Usar nome do personagem se playerName estiver vazio
 			const displayName = playerName.trim() || selectedPlayer.name;
 
-			const response = await fetch(
-				`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001"}/api/rooms/${roomCode}`,
-			);
+			// Usar a mesma variável de ambiente que o socket usa
+			const socketUrl = process.env.NEXT_PUBLIC_SOCKET_URL || "http://localhost:3001";
+
+			const response = await fetch(`${socketUrl}/api/rooms/${roomCode}`);
 			const data = await response.json();
 
 			if (data.exists) {
@@ -371,6 +411,9 @@ export default function CreateRoomPage() {
 					</Button>
 				</CardFooter>
 			</Card>
+
+			{/* Adicionar o indicador de status de conexão apenas nesta página */}
+			<ConnectionStatus />
 		</div>
 	);
 }
