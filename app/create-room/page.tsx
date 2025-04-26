@@ -182,6 +182,10 @@ export default function CreateRoomPage() {
 			setError("");
 			setIsLoading(true);
 
+			// Garantir que o código da sala esteja em maiúsculas
+			const normalizedRoomCode = roomCode.toUpperCase();
+			console.log(`Tentando entrar na sala: ${normalizedRoomCode}`);
+
 			// Obter o personagem selecionado
 			const selectedPlayer = players.find((player) => player.id === characterId);
 			if (!selectedPlayer) {
@@ -196,12 +200,21 @@ export default function CreateRoomPage() {
 			// Usar a mesma variável de ambiente que o socket usa
 			const socketUrl = process.env.NEXT_PUBLIC_SOCKET_URL || "http://localhost:3001";
 
-			const response = await fetch(`${socketUrl}/api/rooms/${roomCode}`);
+			console.log(
+				`Verificando existência da sala ${normalizedRoomCode} em: ${socketUrl}/api/rooms/${normalizedRoomCode}`,
+			);
+
+			const response = await fetch(`${socketUrl}/api/rooms/${normalizedRoomCode}`);
+			console.log(`Status da resposta: ${response.status}`);
+
 			const data = await response.json();
+			console.log(`Dados recebidos:`, data);
 
 			if (data.exists) {
+				console.log(`Sala ${normalizedRoomCode} existe. Redirecionando...`);
+
 				const queryParams = new URLSearchParams({
-					room: roomCode,
+					room: normalizedRoomCode,
 					name: displayName,
 					isHost: "false",
 				});
@@ -219,6 +232,7 @@ export default function CreateRoomPage() {
 				// Redirecionar para a sala de batalha com parâmetros de query
 				router.push(`/battle?${queryParams.toString()}`);
 			} else {
+				console.log(`Sala ${normalizedRoomCode} não encontrada.`);
 				setError("Sala não encontrada. Verifique o código e tente novamente.");
 			}
 		} catch (err) {
@@ -267,24 +281,17 @@ export default function CreateRoomPage() {
 							<>
 								<div className="grid grid-cols-2 gap-2 mb-4">
 									{players.map((player) => (
-										<div
+										<button
 											key={player.id}
-											className={`border rounded-lg p-2 cursor-pointer transition-all ${
+											className={`border rounded-lg p-2 cursor-pointer transition-all w-full text-left ${
 												characterId === player.id ? "ring-2 ring-primary" : "hover:bg-accent"
 											}`}
 											onClick={() => {
 												setCharacterId(player.id);
 												setPlayerName(player.name);
 											}}
-											onKeyDown={(e) => {
-												if (e.key === "Enter" || e.key === " ") {
-													setCharacterId(player.id);
-													setPlayerName(player.name);
-												}
-											}}
-											tabIndex={0}
-											role="button"
 											aria-pressed={characterId === player.id}
+											type="button"
 										>
 											<div className="flex items-center space-x-2">
 												<div className="relative h-10 w-10 rounded-full overflow-hidden bg-muted">
@@ -319,7 +326,7 @@ export default function CreateRoomPage() {
 													</p>
 												</div>
 											</div>
-										</div>
+										</button>
 									))}
 								</div>
 

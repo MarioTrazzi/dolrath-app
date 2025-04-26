@@ -149,11 +149,16 @@ export default function BattlePage() {
 
 function BattleContent() {
 	const searchParams = useSearchParams();
-	const roomCode = searchParams?.get("room") || "unknown";
+	const roomCodeParam = searchParams?.get("room") || "unknown";
+	// Garantir que o código da sala esteja em maiúsculas
+	const roomCode = roomCodeParam.toUpperCase();
 	const playerName = searchParams?.get("name") || "Guest";
 	const isHost = searchParams?.get("isHost") === "true";
 	const characterId = searchParams?.get("characterId") || null;
 	const characterClass = searchParams?.get("characterClass") || "Desconhecido";
+
+	// Adicionar log para verificar o código da sala
+	console.log(`Conectando à sala: ${roomCode}, Nome: ${playerName}, Host: ${isHost}`);
 
 	// Adicionando o hook useSocket para ter acesso ao socket
 	const { socket, isConnected } = useSocket();

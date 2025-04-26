@@ -100,20 +100,33 @@ roomsData.rooms.forEach((room) => {
 
 // API endpoint to check if a room exists
 app.get("/api/rooms/:roomId", (req, res) => {
-	const { roomId } = req.params;
+	const roomId = req.params.roomId.toUpperCase();
+	console.log(`Verificando existência da sala: ${roomId}`);
+
 	if (activeRooms[roomId]) {
+		console.log(`Sala ${roomId} encontrada com ${activeRooms[roomId].players.length} jogadores`);
 		res.json({ exists: true, players: activeRooms[roomId].players.length });
 	} else {
+		console.log(`Sala ${roomId} NÃO encontrada`);
 		res.json({ exists: false });
 	}
 });
 
 // API endpoint to create a new room
 app.post("/api/rooms", (req, res) => {
-	const { customRoomId, characterId } = req.body || {};
+	const characterId = req.body?.characterId;
+	let customRoomId = req.body?.customRoomId;
+
+	// Normalizar o ID da sala para maiúsculas
+	if (customRoomId) {
+		customRoomId = customRoomId.toUpperCase();
+	}
+
+	console.log(`Tentativa de criar sala. ID personalizado: ${customRoomId || "não fornecido"}`);
 
 	// Check if custom room ID is provided and already exists
 	if (customRoomId && activeRooms[customRoomId]) {
+		console.log(`Sala ${customRoomId} já existe. Rejeitando criação.`);
 		return res.status(400).json({
 			error: "Sala com este ID já existe. Escolha outro ID ou entre na sala existente.",
 		});
@@ -122,6 +135,7 @@ app.post("/api/rooms", (req, res) => {
 	const roomId = customRoomId || generateRoomCode();
 	const timestamp = new Date().toISOString();
 
+	// Criar nova sala
 	activeRooms[roomId] = {
 		id: roomId,
 		created: timestamp,
@@ -141,6 +155,7 @@ app.post("/api/rooms", (req, res) => {
 	});
 	saveRooms(roomsData);
 
+	console.log(`Sala ${roomId} criada com sucesso`);
 	res.json({ roomId, created: timestamp });
 });
 
@@ -228,7 +243,7 @@ io.on("connection", (socket) => {
 	console.log("User connected:", socket.id);
 
 	socket.on("createRoom", ({ playerName }) => {
-		const roomCode = generateRoomCode();
+		const roomCode = generateRoomCode().toUpperCase();
 		socket.join(roomCode);
 
 		activeRooms[roomCode] = {
@@ -264,12 +279,20 @@ io.on("connection", (socket) => {
 	});
 
 	socket.on("joinRoom", ({ roomId, playerName, isHost, characterId, characterClass }) => {
-		if (!activeRooms[roomId]) {
+		// Normalizar o ID da sala para maiúsculas
+		const normalizedRoomId = roomId.toUpperCase();
+		console.log(
+			`Tentativa de entrar na sala: ${normalizedRoomId}. Jogador: ${playerName}, CharacterId: ${characterId || "não fornecido"}`,
+		);
+
+		if (!activeRooms[normalizedRoomId]) {
+			console.log(`Sala ${normalizedRoomId} não encontrada`);
 			socket.emit("error", { message: "Room not found" });
 			return;
 		}
 
-		if (activeRooms[roomId].started && !isHost) {
+		if (activeRooms[normalizedRoomId].started && !isHost) {
+			console.log(`Sala ${normalizedRoomId} já iniciou. Acesso negado para jogador não host.`);
 			socket.emit("error", { message: "Game already started" });
 			return;
 		}
@@ -277,10 +300,10 @@ io.on("connection", (socket) => {
 		// Verificação mais robusta para identificar jogadores
 		// Considerar tanto characterId quanto nome do jogador
 		const existingPlayerByCharacter = characterId
-			? activeRooms[roomId].players.findIndex((p) => p.characterId === characterId)
+			? activeRooms[normalizedRoomId].players.findIndex((p) => p.characterId === characterId)
 			: -1;
 
-		const existingPlayerByName = activeRooms[roomId].players.findIndex((p) => p.name === playerName);
+		const existingPlayerByName = activeRooms[normalizedRoomId].players.findIndex((p) => p.name === playerName);
 
 		const existingPlayerIndex = existingPlayerByCharacter !== -1 ? existingPlayerByCharacter : existingPlayerByName;
 
@@ -290,27 +313,27 @@ io.on("connection", (socket) => {
 
 		if (existingPlayerIndex !== -1) {
 			// Se o personagem já existe mas com socket diferente, atualizar o socket
-			if (activeRooms[roomId].players[existingPlayerIndex].id !== socket.id) {
+			if (activeRooms[normalizedRoomId].players[existingPlayerIndex].id !== socket.id) {
 				console.log(`Player ${playerName} (${characterId}) reconnected with new socket id`);
-				activeRooms[roomId].players[existingPlayerIndex].id = socket.id;
+				activeRooms[normalizedRoomId].players[existingPlayerIndex].id = socket.id;
 			}
 
 			// Juntar o jogador ao socket.io room
-			socket.join(roomId);
+			socket.join(normalizedRoomId);
 
 			// Emitir evento de sucesso para o jogador reconectado
 			socket.emit("roomJoined", {
-				roomId,
-				isHost: activeRooms[roomId].players[existingPlayerIndex].isHost,
-				players: activeRooms[roomId].players,
+				roomId: normalizedRoomId,
+				isHost: activeRooms[normalizedRoomId].players[existingPlayerIndex].isHost,
+				players: activeRooms[normalizedRoomId].players,
 			});
 
-			console.log(`${playerName} (${characterId}) reconnected to room: ${roomId}`);
+			console.log(`${playerName} (${characterId}) reconnected to room: ${normalizedRoomId}`);
 			return;
 		}
 
 		// Se chegou aqui, o personagem é novo
-		socket.join(roomId);
+		socket.join(normalizedRoomId);
 
 		const playerInfo = {
 			id: socket.id,
@@ -321,28 +344,28 @@ io.on("connection", (socket) => {
 		};
 
 		// If isHost is true and there's no host yet, set this player as host
-		if (isHost && !activeRooms[roomId].host) {
-			activeRooms[roomId].host = socket.id;
+		if (isHost && !activeRooms[normalizedRoomId].host) {
+			activeRooms[normalizedRoomId].host = socket.id;
 		}
 
-		activeRooms[roomId].players.push(playerInfo);
+		activeRooms[normalizedRoomId].players.push(playerInfo);
 
-		console.log(`Adding new player to room ${roomId}:`, playerInfo);
+		console.log(`Adding new player to room ${normalizedRoomId}:`, playerInfo);
 
 		// Notificar outros jogadores que um novo jogador entrou
-		io.to(roomId).emit("playerJoined", {
+		io.to(normalizedRoomId).emit("playerJoined", {
 			playerName,
 			playerInfo,
 		});
 
 		// Notificar o jogador que entrou com sucesso
 		socket.emit("roomJoined", {
-			roomId,
+			roomId: normalizedRoomId,
 			isHost: playerInfo.isHost,
-			players: activeRooms[roomId].players,
+			players: activeRooms[normalizedRoomId].players,
 		});
 
-		console.log(`${playerName} (${characterId}) joined room: ${roomId}`);
+		console.log(`${playerName} (${characterId}) joined room: ${normalizedRoomId}`);
 	});
 
 	socket.on("startGame", ({ roomId, initialGameState }) => {
@@ -542,6 +565,7 @@ function generateRoomCode() {
 	for (let i = 0; i < 6; i++) {
 		code += chars.charAt(Math.floor(Math.random() * chars.length));
 	}
+	console.log(`Código de sala gerado: ${code}`);
 	return code;
 }
 
