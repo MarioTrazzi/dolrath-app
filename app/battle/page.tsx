@@ -30,8 +30,10 @@ interface Player {
 interface ChatMessageData {
 	sender: string;
 	content: string;
-	isSystem: boolean;
 	timestamp: number;
+	isSystem?: boolean;
+	id?: string;
+	isLocal?: boolean;
 }
 
 interface PlayerJoinedData {
@@ -94,6 +96,7 @@ interface MessageReceivedData {
 	content: string;
 	isSystem: boolean;
 	timestamp: number;
+	messageId?: string;
 }
 
 // Interface para atualização do estado do jogo
@@ -238,6 +241,32 @@ function BattleContent() {
 		if (socket) {
 			console.log("Tentando entrar na sala:", roomCode);
 
+			// Adicionar o usuário atual à lista de jogadores
+			// Isso garante que pelo menos o jogador local sempre apareça na lista
+			const currentPlayer: Player = {
+				id: socket.id || `local-${Date.now()}`,
+				name: playerName,
+				characterName: playerName,
+				characterClass: characterClass || "Desconhecido",
+				isHost: isHost,
+				maxHP: 100,
+				currentHP: 100,
+				maxMP: 80,
+				currentMP: 80,
+				initiative: 0,
+				isReady: false,
+				avatarUrl: "",
+				socketId: socket.id,
+			};
+
+			// Verificar se o jogador já existe na lista antes de adicionar
+			setPlayers((prevPlayers) => {
+				if (!prevPlayers.some((p) => p.name === playerName)) {
+					return [...prevPlayers, currentPlayer];
+				}
+				return prevPlayers;
+			});
+
 			// Handlers de debug em ambiente de desenvolvimento
 			if (process.env.NODE_ENV !== "production") {
 				socket.onAny((event, ...args) => {
@@ -375,18 +404,75 @@ function BattleContent() {
 				]);
 			};
 
-			// Handle chat message
-			const handleChatMessage = (data: { sender: string; text: string; time: string }) => {
-				// O servidor envia { sender, text, time } em vez de { sender, content, isSystem, timestamp }
-				setMessages((prevMessages) => [
-					...prevMessages,
-					{
-						sender: data.sender,
-						content: data.text || "", // o servidor usa 'text' em vez de 'content'
-						isSystem: false,
-						timestamp: Date.now(),
-					},
-				]);
+			// Função para enviar mensagem
+			const sendMessage = () => {
+				if (!chatMessage.trim()) return;
+
+				// ID único para a mensagem local
+				const messageId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+				// Adicionar a mensagem localmente com flag isLocal para identificar depois
+				const newMessage: ChatMessageData = {
+					sender: playerName,
+					content: chatMessage,
+					timestamp: Date.now(),
+					isSystem: false,
+					isLocal: true,
+					id: messageId,
+				};
+
+				setMessages((prev) => [...prev, newMessage]);
+				setChatMessage("");
+
+				// Enviar para o servidor
+				if (socket) {
+					socket.emit("chatMessage", {
+						roomId: roomCode,
+						sender: playerName,
+						text: chatMessage,
+						messageId: messageId,
+					});
+				}
+			};
+
+			// Manipulador para mensagens recebidas
+			const handleChatMessage = (data: {
+				sender?: string;
+				text?: string;
+				time?: number;
+				messageId?: string;
+			}) => {
+				console.log("Mensagem recebida:", data);
+
+				if (!data) {
+					console.error("Dados de mensagem inválidos");
+					return;
+				}
+
+				const sender = data.sender || "Desconhecido";
+				const text = data.text || "";
+				const time = data.time || Date.now();
+				const messageId = data.messageId;
+
+				// Verificar se a mensagem já existe (enviada localmente)
+				const messageExists = messages.some(
+					(msg) => msg.id === messageId || (msg.isLocal && msg.sender === sender && msg.content === text),
+				);
+
+				if (!messageExists) {
+					setMessages((prev) => [
+						...prev,
+						{
+							sender,
+							content: text,
+							timestamp: time,
+							isSystem: false,
+							id: messageId || `server-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+						} as ChatMessageData,
+					]);
+				} else {
+					console.log("Mensagem ignorada (duplicada):", data);
+				}
 			};
 
 			// Handle game state update
@@ -537,67 +623,6 @@ function BattleContent() {
 		}
 	};
 
-	// Send chat message locally (no server connection for now)
-	const sendMessage = async (e?: React.FormEvent) => {
-		// Prevent default form submission which causes page refresh
-		if (e) e.preventDefault();
-
-		if (!chatMessage.trim()) return;
-
-		const msgObj = {
-			sender: playerName,
-			content: chatMessage,
-			isSystem: false,
-			timestamp: Date.now(),
-		};
-
-		// Add to local message history
-		setMessages((prev) => [...prev, msgObj]);
-		setChatMessage("");
-
-		// Send to server
-		if (socket) {
-			console.log("Enviando mensagem para sala:", roomCode);
-			socket.emit("chatMessage", {
-				roomId: roomCode, // Alterado de roomCode para roomId
-				message: {
-					sender: playerName,
-					text: chatMessage,
-				},
-			});
-		}
-
-		// Record message in battle history
-		if (characterId) {
-			// Create local function to record events
-			const recordEvent = async (eventType: string, data: Record<string, unknown>) => {
-				try {
-					await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/battles/record`, {
-						method: "POST",
-						headers: {
-							"Content-Type": "application/json",
-						},
-						body: JSON.stringify({
-							roomId: roomCode,
-							characterId,
-							eventType,
-							eventData: data,
-							timestamp: new Date().toISOString(),
-						}),
-					});
-				} catch (err) {
-					console.error("Failed to record battle event:", err);
-				}
-			};
-
-			recordEvent("message_sent", {
-				sender: playerName,
-				message: chatMessage,
-				timestamp: new Date().toISOString(),
-			});
-		}
-	};
-
 	// Funções de batalha
 	const startBattle = () => {
 		if (!isHost) return;
@@ -637,24 +662,48 @@ function BattleContent() {
 		const result = Math.floor(Math.random() * 20) + 1;
 		console.log(`${playerName} rolou iniciativa: ${result}`);
 
-		// Atualizar iniciativa do jogador
+		// Atualizar iniciativa do jogador localmente
 		setPlayerStats((prev) => ({
 			...prev,
 			initiative: result,
 		}));
 
 		// Atualizar na lista de jogadores local
-		setPlayers((prev) => prev.map((p) => (p.name === playerName ? { ...p, initiative: result } : p)));
+		setPlayers((prev) => prev.map((p) => (p?.name === playerName ? { ...p, initiative: result } : p)));
 
-		// Enviar resultado para o servidor
+		// Enviar resultado para o servidor através de múltiplos eventos para garantir que todos recebam
 		if (socket) {
+			// 1. Enviar rolagem de dados
 			socket.emit("rollDice", {
-				roomId: roomCode, // Corrigido: roomCode → roomId
+				roomId: roomCode,
 				playerName,
 				faces: 20,
 				result,
+				description: "iniciativa",
 				gameState: "rolling_initiative",
 			});
+
+			// 2. Enviar atualização de estado do jogo com a iniciativa
+			socket.emit("updateGameState", {
+				roomId: roomCode,
+				gameState: "rolling_initiative",
+				playerInitiative: {
+					name: playerName,
+					initiative: result,
+				},
+			});
+
+			// Esperar um momento e reenviar para garantir que foi recebido
+			setTimeout(() => {
+				socket.emit("updateGameState", {
+					roomId: roomCode,
+					gameState: "rolling_initiative",
+					playerInitiative: {
+						name: playerName,
+						initiative: result,
+					},
+				});
+			}, 500);
 		}
 
 		// Adicionar mensagem local
@@ -667,18 +716,6 @@ function BattleContent() {
 				timestamp: Date.now(),
 			},
 		]);
-
-		// Informar o servidor sobre a iniciativa
-		if (socket) {
-			socket.emit("updateGameState", {
-				roomId: roomCode, // Corrigido: roomCode → roomId
-				gameState: "rolling_initiative",
-				playerInitiative: {
-					name: playerName,
-					initiative: result,
-				},
-			});
-		}
 
 		// Registrar evento
 		recordBattleEvent({
@@ -940,33 +977,66 @@ function BattleContent() {
 
 			// Ouvir mensagens de chat de outros jogadores
 			const handleMessageReceived = (data: MessageReceivedData) => {
-				// Ignore messages sent by the user to prevent duplication
-				if (data.sender !== playerName) {
-					setMessages((prev) => [
-						...prev,
-						{
-							sender: data.sender,
-							content: data.content,
-							isSystem: data.isSystem,
-							timestamp: data.timestamp,
-						},
-					]);
+				// First, check if message is from current user (already displayed locally)
+				if (data.sender === playerName) {
+					return; // Skip messages from current user as they're already shown locally
 				}
+
+				// Check if the message with this ID already exists
+				if (data.messageId && messages.some((msg) => msg.id === data.messageId)) {
+					return; // Skip if message with this ID already exists
+				}
+
+				setMessages((prev) => [
+					...prev,
+					{
+						sender: data.sender,
+						content: data.content,
+						isSystem: data.isSystem,
+						timestamp: data.timestamp,
+						id: data.messageId || `server-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+					},
+				]);
 			};
 
 			// Ouvir atualizações de estado do jogo
 			const handleGameStateUpdated = (data: GameStateUpdatedData) => {
+				console.log("Estado do jogo atualizado:", data);
+
+				// Atualizar o estado do jogo
 				setGameState(data.gameState);
+
+				// Atualizar a iniciativa do jogador, se fornecida
 				if (data.playerInitiative) {
-					setPlayers((prevPlayers) =>
-						prevPlayers.map((player) =>
-							player.name === data.playerInitiative?.name
-								? { ...player, initiative: data.playerInitiative.initiative }
-								: player,
-						),
-					);
+					console.log("Atualizando iniciativa do jogador:", data.playerInitiative);
+
+					// Atualizar o estado do jogador na lista de jogadores
+					setPlayers((prevPlayers) => {
+						const updatedPlayers = prevPlayers.map((player) => {
+							if (player?.name === data.playerInitiative?.name) {
+								console.log(`Atualizando iniciativa de ${player.name} para ${data.playerInitiative.initiative}`);
+								return {
+									...player,
+									initiative: data.playerInitiative.initiative,
+								};
+							}
+							return player;
+						});
+
+						console.log("Lista de jogadores atualizada:", updatedPlayers);
+						return updatedPlayers;
+					});
+
+					// Se for o jogador atual que rolou, atualizar também os stats locais
+					if (data.playerInitiative.name === playerName) {
+						setPlayerStats((prev) => ({
+							...prev,
+							initiative: data.playerInitiative?.initiative || 0,
+						}));
+					}
 				}
 
+				// Atualizar o turno atual, se fornecido
 				if (data.currentTurn) {
 					setCurrentTurn(data.currentTurn);
 				}

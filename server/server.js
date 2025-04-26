@@ -524,14 +524,16 @@ io.on("connection", (socket) => {
 		});
 	});
 
-	socket.on("chatMessage", ({ roomId, message }) => {
+	socket.on("chatMessage", ({ roomId, sender, text, messageId }) => {
 		if (!activeRooms[roomId]) return;
 
 		// Emitir mensagem para todos os clientes na sala
 		io.to(roomId).emit("messageReceived", {
-			sender: message.sender,
-			text: message.text,
-			time: new Date().toLocaleTimeString(),
+			sender: sender,
+			content: text,
+			isSystem: false,
+			timestamp: Date.now(),
+			messageId: messageId,
 		});
 	});
 
