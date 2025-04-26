@@ -43,10 +43,16 @@ export const SocketProvider = ({ children }: { children: ReactNode }) => {
 				const newSocket = io(socketUrlWithProtocol, {
 					transports: ["websocket", "polling"],
 					reconnection: true,
-					reconnectionAttempts: 5,
+					reconnectionAttempts: Infinity,
 					reconnectionDelay: 1000,
+					reconnectionDelayMax: 5000,
 					timeout: 20000,
-					forceNew: true, // Forçar uma nova conexão
+					autoConnect: true,
+					forceNew: true,
+					withCredentials: true,
+					extraHeaders: {
+						"My-Custom-Header": "Dolrath App",
+					},
 				});
 
 				newSocket.on("connect", () => {
@@ -72,6 +78,10 @@ export const SocketProvider = ({ children }: { children: ReactNode }) => {
 
 				newSocket.io.on("reconnect", (attempt) => {
 					console.log(`Reconectado após ${attempt} tentativas`);
+				});
+
+				newSocket.on("error", (error) => {
+					console.error("Erro no socket:", error);
 				});
 
 				setSocket(newSocket);

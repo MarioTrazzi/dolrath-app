@@ -11,23 +11,60 @@ const CORS_ORIGINS = process.env.CORS_ORIGINS
 	: ["http://localhost:3000", "http://localhost:3001", "https://dolrath-app.vercel.app"];
 console.log(`CORS configured for origins: ${CORS_ORIGINS}`);
 
+// Configuração mais explícita do CORS
+const corsOptions = {
+	origin: (origin, callback) => {
+		// Permitir requisições sem origin (como mobile apps ou curl)
+		if (!origin) return callback(null, true);
+
+		// Verificar se a origem está na lista ou se estamos em ambiente de desenvolvimento
+		if (CORS_ORIGINS.indexOf(origin) !== -1 || process.env.NODE_ENV === "development") {
+			callback(null, true);
+		} else {
+			console.log(`Origem rejeitada pelo CORS: ${origin}`);
+			callback(new Error("Não permitido pelo CORS"));
+		}
+	},
+	credentials: true,
+	methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+	allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "Accept", "Origin"],
+	exposedHeaders: ["Content-Length", "X-Foo", "X-Bar"],
+	maxAge: 86400, // 24 horas em segundos
+};
+
 const app = express();
-app.use(
-	cors({
-		origin: CORS_ORIGINS,
-		methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-		credentials: true,
-	}),
-);
+app.use(cors(corsOptions));
 app.use(express.json());
+
+// Adicionar middleware para definir headers CORS em todas as respostas
+app.use((req, res, next) => {
+	// Definir headers CORS para cada requisição
+	const origin = req.headers.origin;
+	if (CORS_ORIGINS.includes(origin)) {
+		res.header("Access-Control-Allow-Origin", origin);
+	} else if (process.env.NODE_ENV === "development") {
+		res.header("Access-Control-Allow-Origin", "*");
+	}
+
+	res.header("Access-Control-Allow-Methods", "GET,PUT,POST,DELETE,OPTIONS");
+	res.header(
+		"Access-Control-Allow-Headers",
+		"Content-Type, Authorization, Content-Length, X-Requested-With, Accept, Origin",
+	);
+	res.header("Access-Control-Allow-Credentials", "true");
+
+	// Passar para o próximo middleware
+	next();
+});
+
+// Handler para solicitações OPTIONS (preflight)
+app.options("*", (req, res) => {
+	res.status(200).send();
+});
 
 const server = http.createServer(app);
 const io = new Server(server, {
-	cors: {
-		origin: CORS_ORIGINS,
-		methods: ["GET", "POST"],
-		credentials: true,
-	},
+	cors: corsOptions,
 	allowEIO3: true,
 	transports: ["websocket", "polling"],
 	pingTimeout: 120000,
@@ -276,11 +313,25 @@ function saveCharacterBattleHistory(characterId, roomId, eventRecord) {
 
 // Health check endpoint
 app.get("/api/health", (req, res) => {
+	const clientOrigin = req.headers.origin || "Sem origem";
+	const corsStatus = CORS_ORIGINS.includes(clientOrigin) ? "Permitido" : "Não permitido";
+
 	res.json({
 		status: "ok",
 		uptime: process.uptime(),
 		timestamp: Date.now(),
 		connections: Object.keys(io.sockets.sockets).length,
+		cors: {
+			allowedOrigins: CORS_ORIGINS,
+			clientOrigin,
+			corsStatus,
+		},
+		server: {
+			nodeEnv: process.env.NODE_ENV || "não definido",
+			port: PORT,
+			host: HOST,
+		},
+		activeRooms: Object.keys(activeRooms).length,
 	});
 });
 
