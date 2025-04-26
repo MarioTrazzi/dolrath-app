@@ -1,9 +1,9 @@
 const express = require("express");
-const http = require("http");
+const http = require("node:http");
 const { Server } = require("socket.io");
 const cors = require("cors");
-const fs = require("fs");
-const path = require("path");
+const fs = require("node:fs");
+const path = require("node:path");
 
 // Configuração de CORS
 const CORS_ORIGINS = process.env.CORS_ORIGINS ? process.env.CORS_ORIGINS.split(",") : "*";
@@ -28,12 +28,14 @@ const io = new Server(server, {
 	},
 	allowEIO3: true,
 	transports: ["websocket", "polling"],
-	pingTimeout: 60000,
-	pingInterval: 25000,
+	pingTimeout: 120000,
+	pingInterval: 30000,
+	connectTimeout: 60000,
+	maxHttpBufferSize: 1e8,
 });
 
 // Adicionar logs de inicialização
-console.log(`Server starting...`);
+console.log("Server starting...");
 console.log(`__dirname: ${__dirname}`);
 console.log(`Working directory: ${process.cwd()}`);
 console.log(`NODE_ENV: ${process.env.NODE_ENV}`);
@@ -89,14 +91,14 @@ const activeRooms = {};
 
 // Initialize rooms from file
 const roomsData = loadRooms();
-roomsData.rooms.forEach((room) => {
+for (const room of roomsData.rooms) {
 	activeRooms[room.id] = {
 		...room,
 		players: [],
 		gameState: "waiting",
 		started: false,
 	};
-});
+}
 
 // API endpoint to check if a room exists
 app.get("/api/rooms/:roomId", (req, res) => {
@@ -183,9 +185,8 @@ app.post("/api/battles/record", (req, res) => {
 		saveCharacterBattleHistory(characterId, roomId, eventRecord);
 
 		return res.json({ success: true, eventId: eventRecord.id });
-	} else {
-		return res.status(404).json({ error: "Room not found" });
 	}
+	return res.status(404).json({ error: "Room not found" });
 });
 
 // Function to save character battle history
