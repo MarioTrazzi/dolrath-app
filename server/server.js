@@ -280,6 +280,13 @@ io.on("connection", (socket) => {
 	});
 
 	socket.on("joinRoom", ({ roomId, playerName, isHost, characterId, characterClass }) => {
+		// Verificar se roomId é válido antes de tentar normalizar
+		if (!roomId) {
+			console.log("Tentativa de entrar em sala com ID inválido ou não fornecido");
+			socket.emit("error", { message: "Room ID is required" });
+			return;
+		}
+
 		// Normalizar o ID da sala para maiúsculas
 		const normalizedRoomId = roomId.toUpperCase();
 		console.log(
