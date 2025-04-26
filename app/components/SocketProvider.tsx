@@ -35,16 +35,29 @@ export const SocketProvider = ({ children }: { children: ReactNode }) => {
 				const newSocket = io(socketUrl, {
 					transports: ["websocket", "polling"],
 					reconnection: true,
-					reconnectionAttempts: Number.POSITIVE_INFINITY,
-					reconnectionDelay: 1000,
-					reconnectionDelayMax: 5000,
-					timeout: 20000,
+					reconnectionAttempts: 10,
+					reconnectionDelay: 3000,
+					reconnectionDelayMax: 10000,
+					timeout: 30000,
 					autoConnect: true,
 					forceNew: true,
-					// Não usar o path padrão /socket.io
 					path: "/socket.io/",
 					withCredentials: true,
 				});
+
+				// Verificar status do servidor antes de tentar conexão
+				console.log("Verificando se o servidor está ativo...");
+				fetch(`${socketUrl}/api/health`)
+					.then((response) => {
+						if (response.ok) {
+							console.log("Servidor está ativo e respondendo!");
+						} else {
+							console.error("Servidor retornou status:", response.status);
+						}
+					})
+					.catch((error) => {
+						console.error("Não foi possível verificar status do servidor:", error.message);
+					});
 
 				// Log para debugar a URL que está sendo usada
 				console.log("Detalhes da conexão:", {
@@ -64,6 +77,16 @@ export const SocketProvider = ({ children }: { children: ReactNode }) => {
 					console.error("Erro na conexão socket:", err.message);
 					console.error("Detalhes completos:", err);
 					setIsConnected(false);
+
+					// Verificar se o erro é de timeout
+					if (err.message === "timeout") {
+						console.log("Timeout detectado, tentando abordagem alternativa: polling");
+
+						// Se falhar com websocket, forçar uso de polling
+						if (newSocket.io.engine?.transport?.name === "websocket") {
+							newSocket.io.engine.transport.close();
+						}
+					}
 				});
 
 				newSocket.on("disconnect", (reason) => {
