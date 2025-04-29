@@ -1,10 +1,11 @@
 "use client";
 
-import React, { useState, useEffect, useRef, useCallback } from "react";
-import { useSocket } from "@/components/providers/socket-provider"; // Assuming SocketProvider path
+import { useState, useEffect, useRef, useCallback } from "react";
+import type React from "react"; // Use type import for React
+import { useSocket } from "@/app/components/SocketProvider"; // Corrected path
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { ScrollArea } from "@/components/ui/scroll-area";
+import { ScrollArea } from "@/components/ui/scroll-area"; // Corrected path (assuming standard location)
 import { Send } from "lucide-react";
 
 interface ChatMessage {
