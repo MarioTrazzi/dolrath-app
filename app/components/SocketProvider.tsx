@@ -25,9 +25,9 @@ export const SocketProvider = ({ children }: { children: ReactNode }) => {
 	useEffect(() => {
 		const initSocket = async () => {
 			try {
-				// URL fixa para o servidor de socket
-				const socketUrl = "https://dolrath-app.onrender.com";
-				console.log("Tentando conectar ao servidor socket:", socketUrl);
+				// Use environment variable for socket URL
+				const socketUrl = process.env.NEXT_PUBLIC_SOCKET_URL || "https://dolrath-socket.onrender.com"; // Default to correct URL
+				console.log("Attempting to connect to socket server:", socketUrl);
 
 				const io = (await import("socket.io-client")).default;
 
