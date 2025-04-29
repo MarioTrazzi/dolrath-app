@@ -11,7 +11,7 @@ const CORS_ORIGINS = process.env.CORS_ORIGINS
 	: ["https://dolrath-app.vercel.app", "http://localhost:3000"]; // Added localhost for dev
 
 console.log(`Server starting... PORT: ${PORT}, HOST: ${HOST}`);
-console.log(`Allowed CORS Origins: ${CORS_ORIGINS}`);
+console.log("Allowed CORS Origins:", CORS_ORIGINS);
 
 const app = express();
 
@@ -19,8 +19,17 @@ const app = express();
 const corsOptions = {
 	origin: (origin, callback) => {
 		// Allow requests with no origin (like mobile apps or curl requests)
-		if (!origin) return callback(null, true);
-		if (CORS_ORIGINS.includes(origin)) {
+		if (!origin) {
+			console.log("Request with no origin allowed");
+			return callback(null, true);
+		}
+		// Check if the origin is in our allowed list
+		const originAllowed = CORS_ORIGINS.some(
+			(allowedOrigin) => origin === allowedOrigin || origin.startsWith(allowedOrigin),
+		);
+
+		if (originAllowed) {
+			console.log(`CORS: Origin ${origin} allowed`);
 			callback(null, true);
 		} else {
 			console.error(`CORS Error: Origin ${origin} not allowed.`);
@@ -72,14 +81,15 @@ app.use((err, req, res, next) => {
 const server = http.createServer(app);
 
 // In-memory store for connected players
-// Structure: { socketId: { id: socketId, username: string }, ... }
+// Structure: { socketId: { id: socketId, characterId: string, characterName: string }, ... }
 const connectedPlayers = {};
 
 // Function to broadcast the updated player list
 function broadcastPlayerList(ioInstance) {
 	const playerList = Object.values(connectedPlayers).map((player) => ({
-		id: player.id,
-		username: player.username,
+		id: player.id, // socket id
+		username: player.characterName, // Use characterName as the display name
+		characterId: player.characterId, // Include characterId if needed by client
 	}));
 	ioInstance.emit("updatePlayerList", playerList);
 	console.log("Broadcasting player list:", playerList.length, "players");
@@ -90,7 +100,7 @@ let io;
 try {
 	io = new Server(server, {
 		cors: corsOptions, // Reuse the same CORS options
-		transports: ["websocket"], // Prefer WebSocket
+		transports: ["polling", "websocket"], // Allow polling fallback
 		pingTimeout: 60000,
 		pingInterval: 25000,
 	});
@@ -101,20 +111,22 @@ try {
 		console.log(`Socket connected: ${socket.id} via ${socket.conn.transport.name}`);
 		console.log(`Origin: ${socket.handshake.headers.origin}`);
 
-		// Handler for user identification
+		// Handler for user identification (expects character info)
 		socket.on("identifyUser", (userData) => {
-			// Use optional chaining for cleaner check
-			if (userData?.username) {
-				console.log(`User identified: ${socket.id} as ${userData.username}`);
+			// Validate incoming data
+			if (userData?.characterId && userData?.characterName) {
+				console.log(
+					`User identified: ${socket.id} as Character ${userData.characterName} (ID: ${userData.characterId})`,
+				);
 				connectedPlayers[socket.id] = {
 					id: socket.id,
-					username: userData.username,
+					characterId: userData.characterId,
+					characterName: userData.characterName,
 				};
 				// Send updated list to everyone
 				broadcastPlayerList(io);
 			} else {
-				console.log(`Invalid identification data from ${socket.id}:`, userData);
-				// Maybe disconnect if identification is required and invalid?
+				console.log(`Invalid character identification data from ${socket.id}:`, userData);
 				// socket.disconnect(true);
 			}
 		});
@@ -123,6 +135,7 @@ try {
 			console.log(`Socket disconnected: ${socket.id}, Reason: ${reason}`);
 			// Remove player from list if they were identified
 			if (connectedPlayers[socket.id]) {
+				console.log(`Character ${connectedPlayers[socket.id].characterName} disconnected.`);
 				delete connectedPlayers[socket.id];
 				// Send updated list to everyone
 				broadcastPlayerList(io);
@@ -145,33 +158,30 @@ try {
 
 		// === Basic Chat Logic ===
 		socket.on("sendMessage", (messageData) => {
-			// Ensure sender is identified
-			if (!connectedPlayers[socket.id]) {
+			// Ensure sender is identified (character info exists)
+			const senderInfo = connectedPlayers[socket.id];
+			if (!senderInfo) {
 				console.log(`Message rejected from unidentified socket ${socket.id}`);
-				// Optionally send an error back
-				// socket.emit('messageError', { message: 'You must identify first.' });
 				return;
 			}
 
-			// Basic validation
+			// Basic validation of message text
 			if (!messageData || typeof messageData.text !== "string" || messageData.text.trim() === "") {
 				console.log(`Invalid message data received from ${socket.id}:`, messageData);
-				// Optionally send an error back to the sender
-				// socket.emit('messageError', { message: 'Invalid message format.' });
 				return;
 			}
 
-			// Use identified username
-			const senderName = connectedPlayers[socket.id]?.username || `User_${socket.id.substring(0, 4)}`;
+			// Use identified character name
+			const senderName = senderInfo.characterName;
 			const messageText = messageData.text.trim();
 			const timestamp = new Date().toISOString();
 
 			console.log(`Message from ${senderName} (${socket.id}): ${messageText}`);
 
-			// Broadcast the message to all connected clients (including sender)
+			// Broadcast the message to all connected clients
 			io.emit("newMessage", {
-				id: `${socket.id}-${Date.now()}`, // Simple unique ID
-				sender: senderName,
+				id: `${socket.id}-${Date.now()}`,
+				sender: senderName, // Send character name
 				text: messageText,
 				timestamp: timestamp,
 			});

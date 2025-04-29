@@ -1,13 +1,14 @@
 "use client";
 
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import type React from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useSocket } from "@/app/components/SocketProvider";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Send, Users } from "lucide-react";
 import { useSession } from "next-auth/react";
-import { Skeleton } from "@/components/ui/skeleton"; // For loading state
+import { Skeleton } from "./ui/skeleton"; // For loading state
 
 interface ChatMessage {
 	id: string;
@@ -21,7 +22,16 @@ interface ConnectedPlayer {
 	username: string;
 }
 
-export function ChatInterface() {
+interface SelectedCharacter {
+	id: string;
+	name: string;
+}
+
+interface ChatInterfaceProps {
+	character: SelectedCharacter;
+}
+
+export function ChatInterface({ character }: ChatInterfaceProps) {
 	const { socket, isConnected } = useSocket();
 	const { data: session, status: sessionStatus } = useSession(); // Get session status
 	const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -40,14 +50,17 @@ export function ChatInterface() {
 		}
 	}, []);
 
-	// Effect to identify user once connected and session is loaded
+	// Effect to identify user with selected character
 	useEffect(() => {
-		if (isConnected && socket && sessionStatus === "authenticated" && session?.user?.name && !hasIdentified.current) {
-			console.log("Identifying user to server:", session.user.name);
-			socket.emit("identifyUser", { username: session.user.name });
+		if (isConnected && socket && character && !hasIdentified.current) {
+			console.log(`Identifying user to server with character: ${character.name} (ID: ${character.id})`);
+			socket.emit("identifyUser", {
+				characterId: character.id,
+				characterName: character.name,
+			});
 			hasIdentified.current = true; // Mark as identified
 		}
-	}, [isConnected, socket, sessionStatus, session, hasIdentified]);
+	}, [isConnected, socket, character]);
 
 	// Effect to reset identified flag on disconnect
 	useEffect(() => {
@@ -84,17 +97,15 @@ export function ChatInterface() {
 	// Scroll to bottom when messages change
 	useEffect(() => {
 		scrollToBottom();
-	}, [messages, scrollToBottom]);
+	}, [scrollToBottom]);
 
 	const handleInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
 		setInputValue(event.target.value);
 	};
 
 	const handleSendMessage = () => {
-		// Ensure user is identified before sending (check session status)
-		if (inputValue.trim() !== "" && socket && isConnected && sessionStatus === "authenticated") {
+		if (inputValue.trim() !== "" && socket && isConnected && character) {
 			const messageData = {
-				// Sender is now implicitly known by the server via identifyUser
 				text: inputValue.trim(),
 			};
 			console.log("Sending message:", messageData);
@@ -102,8 +113,8 @@ export function ChatInterface() {
 			setInputValue("");
 		} else if (!isConnected) {
 			console.error("Cannot send message: Socket not connected.");
-		} else if (sessionStatus !== "authenticated") {
-			console.error("Cannot send message: User not authenticated or identified.");
+		} else if (!character) {
+			console.error("Cannot send message: Character not selected or identified.");
 		}
 	};
 
@@ -169,7 +180,7 @@ export function ChatInterface() {
 			<div className="flex flex-col flex-1">
 				{/* Header */}
 				<div className="p-3 border-b bg-muted/40 text-sm font-medium text-center">
-					Global Chat - Status:{" "}
+					Chatting as: <span className="font-semibold">{character.name}</span> - Status:{" "}
 					{isConnected ? (
 						<span className="text-green-600">Connected</span>
 					) : (
@@ -180,19 +191,19 @@ export function ChatInterface() {
 				<ScrollArea className="flex-1 p-4" ref={scrollAreaRef}>
 					<div className="space-y-3">
 						{messages.length === 0 && (
-							<p className="text-center text-muted-foreground text-sm">Welcome! Send a message to start.</p>
+							<p className="text-center text-muted-foreground text-sm">Welcome, {character.name}! Send a message.</p>
 						)}
 						{messages.map((msg) => (
 							<div
 								key={msg.id}
-								className={`flex flex-col text-sm ${msg.sender === session?.user?.name ? "items-end" : "items-start"}`}
+								className={`flex flex-col text-sm ${msg.sender === character.name ? "items-end" : "items-start"}`}
 							>
 								<div>
-									<span className="font-semibold">{msg.sender === session?.user?.name ? "You" : msg.sender}</span>
+									<span className="font-semibold">{msg.sender === character.name ? "You" : msg.sender}</span>
 									<span className="text-xs text-muted-foreground ml-2">{formatTimestamp(msg.timestamp)}</span>
 								</div>
 								<p
-									className={`rounded-lg px-3 py-1 mt-1 max-w-xs break-words ${msg.sender === session?.user?.name ? "bg-primary text-primary-foreground" : "bg-secondary"}`}
+									className={`rounded-lg px-3 py-1 mt-1 max-w-xs break-words ${msg.sender === character.name ? "bg-primary text-primary-foreground" : "bg-secondary"}`}
 								>
 									{msg.text}
 								</p>
@@ -205,17 +216,17 @@ export function ChatInterface() {
 					<div className="flex items-center space-x-2">
 						<Input
 							type="text"
-							placeholder={isConnected ? "Type your message..." : "Connecting..."}
+							placeholder={isConnected ? `Message as ${character.name}...` : "Connecting..."}
 							value={inputValue}
 							onChange={handleInputChange}
 							onKeyPress={handleKeyPress}
-							disabled={!isConnected || sessionStatus !== "authenticated"}
+							disabled={!isConnected}
 							className="flex-1"
 						/>
 						<Button
 							type="button"
 							onClick={handleSendMessage}
-							disabled={!isConnected || inputValue.trim() === "" || sessionStatus !== "authenticated"}
+							disabled={!isConnected || inputValue.trim() === ""}
 							size="icon"
 						>
 							<Send className="h-4 w-4" />

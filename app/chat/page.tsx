@@ -4,7 +4,7 @@ import React, { useState, useEffect } from "react";
 import { ChatInterface } from "@/components/ChatInterface";
 import { SocketProvider } from "@/app/components/SocketProvider";
 import { useSession } from "next-auth/react";
-import { getPlayersByUserId } from "@/actions/player"; // Assuming this action exists
+import { getPlayersByUserId } from "../../actions/player";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -109,7 +109,7 @@ export default function ChatPageWrapper() {
 				{isLoading && (
 					<div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
 						{[...Array(4)].map((_, i) => (
-							<Skeleton key={`skeleton-${i}`} className="h-48 w-full" />
+							<Skeleton key={`loading-skeleton-${i}`} className="h-48 w-full" />
 						))}
 					</div>
 				)}
