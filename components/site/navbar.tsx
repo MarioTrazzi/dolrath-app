@@ -44,6 +44,12 @@ const Navbar = () => {
 							Battle
 						</Link>
 						<Link
+							href="/chat"
+							className="px-3 py-2 text-sm font-medium rounded-md text-foreground hover:bg-accent hover:text-accent-foreground"
+						>
+							Chat
+						</Link>
+						<Link
 							href="/ranking"
 							className="px-3 py-2 text-sm font-medium rounded-md text-foreground hover:bg-accent hover:text-accent-foreground"
 						>
@@ -114,6 +120,13 @@ const Navbar = () => {
 								onClick={() => setMobileMenuOpen(false)}
 							>
 								Battle
+							</Link>
+							<Link
+								href="/chat"
+								className="flex items-center px-4 py-2 text-foreground hover:bg-accent rounded-md"
+								onClick={() => setMobileMenuOpen(false)}
+							>
+								Chat
 							</Link>
 							<Link
 								href="/ranking"
