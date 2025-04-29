@@ -71,6 +71,20 @@ app.use((err, req, res, next) => {
 
 const server = http.createServer(app);
 
+// In-memory store for connected players
+// Structure: { socketId: { id: socketId, username: string }, ... }
+const connectedPlayers = {};
+
+// Function to broadcast the updated player list
+function broadcastPlayerList(ioInstance) {
+	const playerList = Object.values(connectedPlayers).map((player) => ({
+		id: player.id,
+		username: player.username,
+	}));
+	ioInstance.emit("updatePlayerList", playerList);
+	console.log("Broadcasting player list:", playerList.length, "players");
+}
+
 // Initialize Socket.IO Server
 let io;
 try {
@@ -87,8 +101,32 @@ try {
 		console.log(`Socket connected: ${socket.id} via ${socket.conn.transport.name}`);
 		console.log(`Origin: ${socket.handshake.headers.origin}`);
 
+		// Handler for user identification
+		socket.on("identifyUser", (userData) => {
+			// Use optional chaining for cleaner check
+			if (userData?.username) {
+				console.log(`User identified: ${socket.id} as ${userData.username}`);
+				connectedPlayers[socket.id] = {
+					id: socket.id,
+					username: userData.username,
+				};
+				// Send updated list to everyone
+				broadcastPlayerList(io);
+			} else {
+				console.log(`Invalid identification data from ${socket.id}:`, userData);
+				// Maybe disconnect if identification is required and invalid?
+				// socket.disconnect(true);
+			}
+		});
+
 		socket.on("disconnect", (reason) => {
 			console.log(`Socket disconnected: ${socket.id}, Reason: ${reason}`);
+			// Remove player from list if they were identified
+			if (connectedPlayers[socket.id]) {
+				delete connectedPlayers[socket.id];
+				// Send updated list to everyone
+				broadcastPlayerList(io);
+			}
 		});
 
 		socket.on("error", (error) => {
@@ -107,6 +145,14 @@ try {
 
 		// === Basic Chat Logic ===
 		socket.on("sendMessage", (messageData) => {
+			// Ensure sender is identified
+			if (!connectedPlayers[socket.id]) {
+				console.log(`Message rejected from unidentified socket ${socket.id}`);
+				// Optionally send an error back
+				// socket.emit('messageError', { message: 'You must identify first.' });
+				return;
+			}
+
 			// Basic validation
 			if (!messageData || typeof messageData.text !== "string" || messageData.text.trim() === "") {
 				console.log(`Invalid message data received from ${socket.id}:`, messageData);
@@ -115,7 +161,8 @@ try {
 				return;
 			}
 
-			const senderName = messageData.sender || `User_${socket.id.substring(0, 4)}`;
+			// Use identified username
+			const senderName = connectedPlayers[socket.id]?.username || `User_${socket.id.substring(0, 4)}`;
 			const messageText = messageData.text.trim();
 			const timestamp = new Date().toISOString();
 
