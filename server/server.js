@@ -8,7 +8,7 @@ const PORT = process.env.PORT || 3001;
 const HOST = process.env.HOST || "0.0.0.0";
 const CORS_ORIGINS = process.env.CORS_ORIGINS
 	? process.env.CORS_ORIGINS.split(",")
-	: ["https://dolrath-app.vercel.app", "http://localhost:3000"]; // Added localhost for dev
+	: ["https://dolrath-app.vercel.app"]; // Added localhost for dev
 
 console.log(`Server starting... PORT: ${PORT}, HOST: ${HOST}`);
 console.log("Allowed CORS Origins:", CORS_ORIGINS);
